@@ -25,17 +25,10 @@ jobs:
           flutter-version: '3.24.0'
           channel: 'stable'
 
-      - name: Check versions
-        run: |
-          flutter --version
-          java -version
-
-      # 删除之前被修改坏的 Android 工程
+      # 1. 删除旧的 android 工程，重新生成干净的（这是 ChatGPT 的思路，非常棒）
       - name: Remove old Android project
-        run: |
-          rm -rf android
+        run: rm -rf android
 
-      # 使用 Flutter 3.24.0 重新生成干净 Android 工程
       - name: Create Android project
         run: |
           flutter create \
@@ -44,121 +37,104 @@ jobs:
             --org com.example \
             .
 
-      # flutter_local_notifications 17.2.2 所需的 desugaring
+      # 2. 修复 Kotlin 版本冲突
+      - name: Fix Kotlin Gradle Plugin Version
+        run: |
+          sed -i 's|ext.kotlin_version = .*|ext.kotlin_version = "1.9.22"|' android/build.gradle
+          sed -i 's|id "org.jetbrains.kotlin.android" version ".*"|id "org.jetbrains.kotlin.android" version "1.9.22"|' android/settings.gradle
+
+      # 3. 配置脱糖依赖（修正：使用 2.1.4 修复 R8 崩溃）
       - name: Configure desugaring
         run: |
-          python3 -c "
+          python3 - <<'PY'
           from pathlib import Path
+          path = Path("android/app/build.gradle")
+          content = path.read_text()
 
-          p = Path('android/app/build.gradle')
-          s = p.read_text()
-
-          if 'coreLibraryDesugaringEnabled true' not in s:
-              s = s.replace(
-                  'compileOptions {',
-                  'compileOptions {\\n        coreLibraryDesugaringEnabled true',
-                  1
+          if "coreLibraryDesugaringEnabled true" not in content:
+              content = content.replace(
+                  "compileOptions {",
+                  "compileOptions {\n        coreLibraryDesugaringEnabled true", 1
               )
 
-          if 'desugar_jdk_libs:1.2.2' not in s:
-              s += '''
+          if "desugar_jdk_libs:2.1.4" not in content:
+              content += """
+
           dependencies {
-              coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:1.2.2'
+              coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
           }
-          '''
+          """
+          path.write_text(content)
+          print("Desugaring configuration completed.")
+          PY
 
-          p.write_text(s)
-          "
-
-      # 配置通知权限和通知 Receiver
+      # 4. 配置 Manifest 权限（修正 exported 属性，确保重启后通知有效）
       - name: Configure notification manifest
         run: |
-          python3 -c "
+          python3 - <<'PY'
           from pathlib import Path
+          import re
 
-          p = Path('android/app/src/main/AndroidManifest.xml')
-          s = p.read_text()
+          path = Path("android/app/src/main/AndroidManifest.xml")
+          content = path.read_text()
 
           permissions = [
-              '<uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\" />',
-              '<uses-permission android:name=\"android.permission.SCHEDULE_EXACT_ALARM\" />',
-              '<uses-permission android:name=\"android.permission.RECEIVE_BOOT_COMPLETED\" />',
-              '<uses-permission android:name=\"android.permission.VIBRATE\" />'
+              '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
+              '<uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />',
+              '<uses-permission android:name="android.permission.USE_EXACT_ALARM" />',
+              '<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />',
+              '<uses-permission android:name="android.permission.VIBRATE" />'
           ]
 
           for permission in permissions:
-              if permission not in s:
-                  s = s.replace(
-                      '<application',
-                      permission + '\\n    <application',
-                      1
-                  )
+              if permission not in content:
+                  content = content.replace("<application", permission + "\n    <application", 1)
 
-          s = s.replace(
-              'android:label=\"banbiao_xiaoli\"',
-              'android:label=\"我的记录\"',
-              1
-          )
+          # 修改 App 名字
+          application_pattern = r'<application\b[^>]*>'
+          match = re.search(application_pattern, content, flags=re.DOTALL)
+          if match:
+              application_tag = match.group(0)
+              if "android:label=" in application_tag:
+                  application_tag = re.sub(r'android:label="[^"]*"', 'android:label="我的记录"', application_tag, count=1)
+              else:
+                  application_tag = application_tag[:-1] + ' android:label="我的记录">'
+              content = content[:match.start()] + application_tag + content[match.end():]
 
-          receivers = '''
-              <receiver
-                  android:exported=\"false\"
-                  android:name=\"com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver\" />
-
-              <receiver
-                  android:exported=\"false\"
-                  android:name=\"com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver\">
+          # 注册通知接收器（注意：BootReceiver 必须为 true 才能接收系统广播，否则重启后通知失效）
+          receiver_text = """
+              <receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" android:exported="false" />
+              <receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver" android:exported="true">
                   <intent-filter>
-                      <action android:name=\"android.intent.action.BOOT_COMPLETED\" />
-                      <action android:name=\"android.intent.action.MY_PACKAGE_REPLACED\" />
-                      <action android:name=\"android.intent.action.QUICKBOOT_POWERON\" />
-                      <action android:name=\"com.htc.intent.action.QUICKBOOT_POWERON\" />
+                      <action android:name="android.intent.action.BOOT_COMPLETED" />
+                      <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                      <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                   </intent-filter>
               </receiver>
-          '''
+          """
+          if "ScheduledNotificationReceiver" not in content:
+              content = content.replace("</application>", receiver_text + "\n    </application>", 1)
 
-          if 'ScheduledNotificationReceiver' not in s:
-              s = s.replace(
-                  '</application>',
-                  receivers + '\\n    </application>',
-                  1
-              )
+          path.write_text(content)
+          print("Notification manifest configuration completed.")
+          PY
 
-          p.write_text(s)
-          "
-
+      # 5. 检查图标
       - name: Check app icon
         run: |
           if [ ! -f "icon.jpg" ]; then
-            echo "ERROR: icon.jpg not found in project root"
-            exit 1
+            echo "ERROR: icon.jpg not found in project root."; exit 1
           fi
 
       - name: Install dependencies
-        run: |
-          flutter pub get
+        run: flutter pub get
 
       - name: Generate Launcher Icons
-        run: |
-          dart run flutter_launcher_icons
+        run: dart run flutter_launcher_icons
 
-      - name: Verify Android configuration
-        run: |
-          echo "===== Android settings.gradle ====="
-          cat android/settings.gradle
-
-          echo ""
-          echo "===== Desugaring ====="
-          grep -n -A3 -B3 "desugar" android/app/build.gradle || true
-
-          echo ""
-          echo "===== Notification receivers ====="
-          grep -n -A12 -B2 "ScheduledNotification" \
-            android/app/src/main/AndroidManifest.xml || true
-
+      # 6. 编译（修正：绝对不能加 --no-shrink）
       - name: Build release APK
-        run: |
-          flutter build apk --release --no-shrink
+        run: flutter build apk --release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

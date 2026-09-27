@@ -28,4 +28,4 @@ flutter:
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: false
-  image_path: "icon.jpg"
+  image_path: "icon.jpg" # 如果是png请改成 icon.png
