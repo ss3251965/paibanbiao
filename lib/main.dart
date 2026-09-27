@@ -25,6 +25,7 @@ class BanBiaoApp extends StatelessWidget {
           brightness: Brightness.dark,
         ),
         useMaterial3: true,
+        scaffoldBackgroundColor: const Color(0xFF1C1C1E),
       ),
       home: const CalendarScreen(),
     );

@@ -48,6 +48,58 @@ class _CalendarScreenState extends State<CalendarScreen> {
     return null;
   }
 
+  // 点击年月弹出的选择器
+  Future<void> _showYearMonthPicker(BuildContext context) async {
+    int selectedYear = _current.year;
+    int selectedMonth = _current.month;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSt) => AlertDialog(
+            title: const Text('选择年月'),
+            content: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                DropdownButton<int>(
+                  value: selectedYear,
+                  items: List.generate(15, (i) => DateTime.now().year - 10 + i)
+                      .map((y) => DropdownMenuItem(value: y, child: Text('$y年')))
+                      .toList(),
+                  onChanged: (v) => setSt(() => selectedYear = v!),
+                ),
+                DropdownButton<int>(
+                  value: selectedMonth,
+                  items: List.generate(12, (i) => i + 1)
+                      .map((m) => DropdownMenuItem(value: m, child: Text('$m月')))
+                      .toList(),
+                  onChanged: (v) => setSt(() => selectedMonth = v!),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  setState(() {
+                    _current = DateTime(selectedYear, selectedMonth);
+                  });
+                  Navigator.pop(ctx);
+                },
+                child: const Text('确定'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // 点击日期，弹出设置班次和备注的窗口
   Future<void> _openPicker(DateTime date) async {
     final k = _key(date);
     final existing = _records[k] ?? DayRecord();
@@ -57,72 +109,76 @@ class _CalendarScreenState extends State<CalendarScreen> {
     await showModalBottomSheet(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true, // 允许键盘弹起时撑高界面
       builder: (ctx) {
-        return SafeArea(
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-                  child: Row(
-                    children: [
-                      Text('${date.year}年${date.month}月${date.day}日',
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                    ],
-                  ),
-                ),
-                ..._shifts.map((s) => ListTile(
-                      leading: Container(
-                        width: 22,
-                        height: 22,
-                        decoration: BoxDecoration(
-                          color: s.color,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                      ),
-                      title: Text(s.name),
-                      trailing: shiftId == s.id ? const Icon(Icons.check, color: Colors.blue) : null,
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        _setRecord(date, s.id, existing.note);
-                      },
-                    )),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  child: TextField(
-                    controller: noteCtl,
-                    decoration: const InputDecoration(
-                      labelText: '特殊记录（如：开会、请假）',
-                      border: OutlineInputBorder(),
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom), // 键盘避让
+          child: SafeArea(
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                    child: Row(
+                      children: [
+                        Text('${date.year}年${date.month}月${date.day}日',
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                      ],
                     ),
-                    maxLines: 2,
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      TextButton(
-                        onPressed: () {
+                  ..._shifts.map((s) => ListTile(
+                        leading: Container(
+                          width: 22,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            color: s.color,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                        ),
+                        title: Text(s.name),
+                        trailing: shiftId == s.id ? const Icon(Icons.check, color: Colors.blue) : null,
+                        onTap: () {
                           Navigator.pop(ctx);
-                          _setRecord(date, '', noteCtl.text);
+                          _setRecord(date, s.id, existing.note);
                         },
-                        child: const Text('只存备注/清除班次'),
+                      )),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    child: TextField(
+                      controller: noteCtl,
+                      decoration: const InputDecoration(
+                        labelText: '特殊记录（如：开会、请假）',
+                        border: OutlineInputBorder(),
                       ),
-                      FilledButton(
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          _setRecord(date, shiftId, noteCtl.text);
-                        },
-                        child: const Text('保存'),
-                      ),
-                    ],
+                      maxLines: 2,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 16),
-              ],
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        TextButton(
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _setRecord(date, '', noteCtl.text);
+                          },
+                          child: const Text('只存备注/清除班次'),
+                        ),
+                        FilledButton(
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _setRecord(date, shiftId, noteCtl.text);
+                          },
+                          child: const Text('保存'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
             ),
           ),
         );
@@ -235,8 +291,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
         children: [
           IconButton(onPressed: () => _changeMonth(-1), icon: const Icon(Icons.chevron_left)),
           Expanded(
-            child: Center(
-              child: Text('$year年$month月', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            child: InkWell(
+              onTap: () => _showYearMonthPicker(context), // 点击年月触发选择器
+              child: Center(
+                child: Text('$year年$month月', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              ),
             ),
           ),
           IconButton(onPressed: () => _changeMonth(1), icon: const Icon(Icons.chevron_right)),
@@ -251,13 +310,19 @@ class _CalendarScreenState extends State<CalendarScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
-        children: days.map((d) => Expanded(child: Center(child: Text(d, style: TextStyle(color: Theme.of(context).hintColor, fontSize: 12))))).toList(),
+        children: days.map((d) => Expanded(
+          child: Center(
+            child: Text(d, style: TextStyle(color: Theme.of(context).hintColor, fontSize: 12)),
+          ),
+        )).toList(),
       ),
     );
   }
 
   Widget _dayCell(DateTime date, int day, Shift? shift, String note, bool isToday) {
     final theme = Theme.of(context);
+    final isWeekend = date.weekday == DateTime.saturday || date.weekday == DateTime.sunday;
+    
     return InkWell(
       borderRadius: BorderRadius.circular(10),
       onTap: () => _openPicker(date),
@@ -271,7 +336,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('$day', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+            Text(
+              '$day',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: isWeekend ? Colors.red : null, // 周末标红
+              ),
+            ),
             const Spacer(),
             if (shift != null)
               Container(
