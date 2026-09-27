@@ -37,33 +37,50 @@ jobs:
         run: |
           cat << 'EOF' > fix_desugar.py
           import re
+
           path = "android/app/build.gradle"
+
           with open(path, "r") as f:
               content = f.read()
 
-          # 1. 开启 desugaring
+          # 开启 Java 8+ API desugaring
           if "coreLibraryDesugaringEnabled" not in content:
-              content = content.replace("compileOptions {", "compileOptions {\n        coreLibraryDesugaringEnabled true")
+              content = content.replace(
+                  "compileOptions {",
+                  "compileOptions {\n        coreLibraryDesugaringEnabled true"
+              )
 
-          # 2. 强行在 android {} 块末尾插入 dependencies {}
+          # 添加 desugaring 依赖
           if "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'" not in content:
-              # 在 android { 块末尾插入 dependencies
               idx = content.find("android {")
+
               if idx != -1:
-                  # 找匹配的 }
                   depth = 0
+                  end_idx = None
+
                   for i in range(idx, len(content)):
-                      if content[i] == '{': depth += 1
+                      if content[i] == '{':
+                          depth += 1
                       elif content[i] == '}':
                           depth -= 1
+
                           if depth == 0:
                               end_idx = i
                               break
-                  content = content[:end_idx] + "\n    dependencies {\n        coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'\n    }\n" + content[end_idx:]
+
+                  if end_idx is not None:
+                      content = (
+                          content[:end_idx]
+                          + "\n    dependencies {\n"
+                            "        coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'\n"
+                            "    }\n"
+                          + content[end_idx:]
+                      )
 
           with open(path, "w") as f:
               f.write(content)
           EOF
+
           python3 fix_desugar.py
 
       - name: Add Notification Permissions
@@ -72,7 +89,7 @@ jobs:
 
       - name: Add Notification Receivers
         run: |
-          sed -i 's|</application>|    <receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />\n        <receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">\n            <intent-filter>\n                <action android:name="android.intent.action.BOOT_COMPLETED" />\n                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />\n                <action android:name="android.intent.action.QUICKBOOT_POWERON" />\n            </intent-filter>\n        </receiver>\n    </application>|' android/app/src/main/AndroidManifest.xml
+          sed -i 's|</application>|    <receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" android:exported="false" />\n        <receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver" android:exported="false">\n            <intent-filter>\n                <action android:name="android.intent.action.BOOT_COMPLETED" />\n                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />\n                <action android:name="android.intent.action.QUICKBOOT_POWERON" />\n            </intent-filter>\n        </receiver>\n    </application>|' android/app/src/main/AndroidManifest.xml
 
       - name: Set App Name
         run: |
