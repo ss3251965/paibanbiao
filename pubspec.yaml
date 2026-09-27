@@ -9,6 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+
   shared_preferences: 2.2.2
   path_provider: 2.1.4
   share_plus: 10.1.2
@@ -22,10 +23,13 @@ dev_dependencies:
   flutter_lints: ^4.0.0
   flutter_launcher_icons: ^0.13.1
 
+dependency_overrides:
+  shared_preferences_android: 2.2.2
+
 flutter:
   uses-material-design: true
 
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: false
-  image_path: "icon.jpg" # 如果是png请改成 icon.png
+  image_path: "icon.jpg"
