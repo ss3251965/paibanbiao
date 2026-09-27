@@ -3,6 +3,7 @@ import '../models/shift.dart';
 import '../models/day_record.dart';
 import '../services/storage_service.dart';
 import '../services/cycle_service.dart';
+import 'shifts_screen.dart'; // 引入班次管理
 
 class CycleScreen extends StatefulWidget {
   final VoidCallback onApply;
@@ -31,19 +32,45 @@ class _CycleScreenState extends State<CycleScreen> {
     if (!mounted) return;
     setState(() {
       _shifts = s;
-      if (_cycle.isEmpty) _cycle = List.generate(4, (_) => s.isNotEmpty ? s[0].id : null);
+      // 如果周期是空的，默认给几个空位，让用户自己选
+      if (_cycle.isEmpty) {
+        _cycle = List.generate(4, (_) => s.isNotEmpty ? s[0].id : null);
+      }
       _loading = false;
     });
   }
 
   Future<void> _apply() async {
+    // 检查是否已经有排班数据
+    if (_shifts.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先点击右上角“管理班次”添加班次！')));
+      return;
+    }
+
     final end = _start.add(Duration(days: _days - 1));
     final map = await _storage.loadRecords();
+    
+    // 生成排班
     final generated = CycleService.generate(start: _start, end: end, cycle: _cycle);
-    map.addAll(generated);
+    
+    // 合并数据（使用新的DayRecord包裹）
+    generated.forEach((key, val) {
+      final oldRecord = map[key];
+      // 如果之前有自定义备注，保留备注，只更新班次
+      map[key] = DayRecord(
+        shiftId: val.shiftId, 
+        note: oldRecord?.note ?? '', 
+        isDone: oldRecord?.isDone ?? false
+      );
+    });
+
     await _storage.saveRecords(map);
-    widget.onApply();
-    if (mounted) Navigator.pop(context);
+    widget.onApply(); // 触发日历页面刷新
+    
+    if (mounted) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('排班应用成功！')));
+    }
   }
 
   Future<void> _pickStart() async {
@@ -56,7 +83,21 @@ class _CycleScreenState extends State<CycleScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('周期排班'), centerTitle: true),
+      appBar: AppBar(
+        title: const Text('周期排班'), 
+        centerTitle: true,
+        actions: [
+          // 把班次管理整合到周期排班右上角
+          IconButton(
+            tooltip: '管理班次',
+            icon: const Icon(Icons.tune),
+            onPressed: () async {
+              await Navigator.push(context, MaterialPageRoute(builder: (_) => const ShiftsScreen()));
+              _load(); // 返回后重新加载班次
+            },
+          ),
+        ],
+      ),
       body: _loading ? const Center(child: CircularProgressIndicator()) : ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -94,7 +135,11 @@ class _CycleScreenState extends State<CycleScreen> {
           const SizedBox(height: 8),
           OutlinedButton.icon(onPressed: () => setState(() => _cycle.add(_shifts.isNotEmpty ? _shifts[0].id : null)), icon: const Icon(Icons.add), label: const Text('添加一天')),
           const SizedBox(height: 24),
-          FilledButton.icon(onPressed: _apply, icon: const Icon(Icons.check), label: const Text('应用排班')),
+          FilledButton.icon(
+            onPressed: _apply, 
+            icon: const Icon(Icons.check), 
+            label: const Text('应用排班'),
+          ),
           const SizedBox(height: 12),
           Text('说明：从起始日期开始，按上面周期循环往后的 $_days 天。已存在的记录会被覆盖。', style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor)),
         ],

@@ -94,7 +94,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
-  // 重构后的小巧极简弹窗
+  // 点击日期，弹出设置主要记录和完成状态的窗口
   Future<void> _openPicker(DateTime date) async {
     final k = _key(date);
     final existing = _records[k] ?? DayRecord();
@@ -105,7 +105,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
     await showModalBottomSheet(
       context: context,
-      // 取消 isScrollControlled，让它高度自适应内容，不再强行撑大
       backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
@@ -121,7 +120,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // 第一行：日期和删除按钮，紧凑排列
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -137,7 +135,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    // 第二行：输入框
                     TextField(
                       controller: noteCtl,
                       style: const TextStyle(fontSize: 14),
@@ -155,7 +152,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       maxLines: 2,
                     ),
                     const SizedBox(height: 8),
-                    // 第三行：勾选框和保存按钮并排，节省空间
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -194,6 +190,36 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
+  // 点击日历上的记录胶囊，弹出气泡写详细说明
+  Future<void> _showRecordDetail(DateTime date, DayRecord rec) async {
+    final detailCtl = TextEditingController(text: rec.note);
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('${date.month}月${date.day}日 详细说明', style: const TextStyle(fontSize: 15)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        content: TextField(
+          controller: detailCtl,
+          decoration: const InputDecoration(hintText: '写详细说明...', isDense: true),
+          maxLines: 3,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          FilledButton(
+            onPressed: () {
+              setState(() {
+                rec.note = detailCtl.text;
+              });
+              _storage.saveRecords(_records);
+              Navigator.pop(ctx);
+            },
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _setRecord(DateTime date, String note, bool isDone) async {
     final k = _key(date);
     setState(() {
@@ -227,11 +253,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
       appBar: AppBar(
         title: const Text('班表小历'), centerTitle: true,
         actions: [
-          IconButton(tooltip: '班次管理', icon: const Icon(Icons.tune), onPressed: () async {
-            await Navigator.push(context, MaterialPageRoute(builder: (_) => const ShiftsScreen())); _load();
-          }),
           IconButton(tooltip: '周期排班', icon: const Icon(Icons.autorenew), onPressed: () async {
             await Navigator.push(context, MaterialPageRoute(builder: (_) => CycleScreen(onApply: _load)));
+            _load();
           }),
           PopupMenuButton<String>(
             onSelected: (v) { if (v == 'export') _export(); },
@@ -246,11 +270,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
           Expanded(
             child: GestureDetector(
               onHorizontalDragEnd: (details) {
-                if (details.primaryVelocity! > 0) {
-                  _changeMonth(-1);
-                } else if (details.primaryVelocity! < 0) {
-                  _changeMonth(1);
-                }
+                if (details.primaryVelocity! > 0) _changeMonth(-1);
+                else if (details.primaryVelocity! < 0) _changeMonth(1);
               },
               child: LayoutBuilder(
                 builder: (context, constraints) {
@@ -277,15 +298,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       String lunarText = '';
                       final holiday = _holidays['${date.month}-${date.day}'];
                       final lunar = Lunar.fromDate(date);
-                      if (holiday != null) {
-                        lunarText = holiday;
-                      } else if (lunar.getJieQi().isNotEmpty) {
-                        lunarText = lunar.getJieQi();
-                      } else if (lunar.getFestivals().isNotEmpty) {
-                        lunarText = lunar.getFestivals().first;
-                      } else {
-                        lunarText = lunar.getDayInChinese();
-                      }
+                      if (holiday != null) lunarText = holiday;
+                      else if (lunar.getJieQi().isNotEmpty) lunarText = lunar.getJieQi();
+                      else if (lunar.getFestivals().isNotEmpty) lunarText = lunar.getFestivals().first;
+                      else lunarText = lunar.getDayInChinese();
 
                       return _dayCell(date, day, rec, lunarText, isToday, isSelected);
                     },
@@ -331,8 +347,17 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Widget _dayCell(DateTime date, int day, DayRecord? rec, String lunarText, bool isToday, bool isSelected) {
     final theme = Theme.of(context);
     final isWeekend = date.weekday == DateTime.saturday || date.weekday == DateTime.sunday;
-    String displayText = (rec != null && rec.note.isNotEmpty) ? rec.note : '';
     bool isDone = rec?.isDone ?? false;
+    
+    // 显示逻辑：优先显示自定义备注，没有备注则显示班次名称
+    String displayText = (rec != null && rec.note.isNotEmpty) ? rec.note : '';
+    Shift? shift;
+    if (rec != null && rec.shiftId.isNotEmpty) {
+      try { shift = _shifts.firstWhere((s) => s.id == rec.shiftId); } catch (_) {}
+    }
+    if (displayText.isEmpty && shift != null) {
+      displayText = shift.name;
+    }
 
     Color lunarColor = Colors.grey.shade500;
     if (isWeekend || lunarText.contains('节') || lunarText.contains('元旦') || lunarText.contains('国庆')) {
@@ -340,49 +365,57 @@ class _CalendarScreenState extends State<CalendarScreen> {
     }
 
     return InkWell(
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: BorderRadius.circular(8),
       onTap: () => _openPicker(date),
       child: Container(
         decoration: BoxDecoration(
-          color: theme.cardColor,
-          borderRadius: BorderRadius.circular(6),
-          border: isSelected ? Border.all(color: Colors.orange, width: 1.5)
-              : (isToday ? Border.all(color: theme.colorScheme.primary, width: 1.5) : null),
+          color: isSelected 
+              ? Colors.orange.withOpacity(0.15) 
+              : (isToday ? theme.colorScheme.primary.withOpacity(0.1) : Colors.transparent),
+          borderRadius: BorderRadius.circular(8),
         ),
         padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 1),
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.start, // 顶部对齐
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Text('$day', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: isWeekend ? Colors.red : null)),
-            const SizedBox(height: 2),
+            const SizedBox(height: 1),
             Text(
               lunarText,
               maxLines: 1, overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 9, color: lunarColor),
             ),
-            const Spacer(),
-            if (displayText.isNotEmpty)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
-                decoration: BoxDecoration(
-                  color: isDone ? Colors.grey.withOpacity(0.2) : theme.colorScheme.primary.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  displayText,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 9,
-                    height: 1.1,
-                    fontWeight: FontWeight.w600,
-                    color: isDone ? Colors.grey : theme.colorScheme.primary,
-                    decoration: isDone ? TextDecoration.lineThrough : null,
+            // 只有有记录时才显示，并添加点击事件
+            if (displayText.isNotEmpty) ...[
+              const SizedBox(height: 4), // 留一点点间距
+              GestureDetector(
+                onTap: () {
+                  if (rec != null) _showRecordDetail(date, rec); // 点击胶囊，弹出详情气泡
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+                  decoration: BoxDecoration(
+                    color: isDone ? Colors.grey.withOpacity(0.2) : theme.colorScheme.primary.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    displayText,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 9,
+                      height: 1.1,
+                      fontWeight: FontWeight.w600,
+                      color: isDone ? Colors.grey : theme.colorScheme.primary,
+                      decoration: isDone ? TextDecoration.lineThrough : null,
+                    ),
                   ),
                 ),
               ),
+            ],
           ],
         ),
       ),
