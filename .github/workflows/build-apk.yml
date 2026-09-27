@@ -36,16 +36,30 @@ jobs:
       - name: Fix Desugaring for Notifications
         run: |
           cat << 'EOF' > fix_desugar.py
-          import os
+          import re
           path = "android/app/build.gradle"
           with open(path, "r") as f:
               content = f.read()
 
+          # 1. 开启 desugaring
           if "coreLibraryDesugaringEnabled" not in content:
               content = content.replace("compileOptions {", "compileOptions {\n        coreLibraryDesugaringEnabled true")
 
-          if "coreLibraryDesugaring" not in content:
-              content += '\ndependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"\n}\n'
+          # 2. 强行在 android {} 块末尾插入 dependencies {}
+          if "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'" not in content:
+              # 在 android { 块末尾插入 dependencies
+              idx = content.find("android {")
+              if idx != -1:
+                  # 找匹配的 }
+                  depth = 0
+                  for i in range(idx, len(content)):
+                      if content[i] == '{': depth += 1
+                      elif content[i] == '}':
+                          depth -= 1
+                          if depth == 0:
+                              end_idx = i
+                              break
+                  content = content[:end_idx] + "\n    dependencies {\n        coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'\n    }\n" + content[end_idx:]
 
           with open(path, "w") as f:
               f.write(content)
