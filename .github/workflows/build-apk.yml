@@ -2,8 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -11,116 +10,70 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Java 17
+      - name: Set up Java
         uses: actions/setup-java@v5
         with:
-          distribution: zulu
+          distribution: 'zulu'
           java-version: '17'
 
-      - name: Set up Flutter 3.24.0
+      - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.24.0'
-          channel: stable
+          channel: 'stable'
 
-      - name: Check versions
-        run: |
-          flutter --version
-          java -version
+      # 删除旧的 Android 工程，生成干净工程
+      - name: Remove old Android project
+        run: rm -rf android
 
-      # ==================================================
-      # Flutter 3.24.0 的 Android 模板重新生成
-      # ==================================================
       - name: Create Android project
         run: |
-          rm -rf android
-
           flutter create \
             --platforms=android \
             --project-name banbiao_xiaoli \
             --org com.example \
             .
 
-      # ==================================================
-      # 固定 Android Gradle Plugin
-      #
-      # Flutter 3.24 默认是 7.3.0
-      # flutter_local_notifications 17.2.2 这一代要求
-      # 至少 7.3.1
-      # ==================================================
-      - name: Configure AGP 7.3.1
+      # 修复 Kotlin 版本
+      - name: Fix Kotlin Gradle Plugin Version
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
+          sed -i 's|ext.kotlin_version = .*|ext.kotlin_version = "1.9.22"|' android/build.gradle
+          sed -i 's|id "org.jetbrains.kotlin.android" version ".*"|id "org.jetbrains.kotlin.android" version "1.9.22"|' android/settings.gradle
 
-          path = Path("android/settings.gradle")
-          content = path.read_text()
-
-          content = content.replace(
-              'id "com.android.application" version "7.3.0" apply false',
-              'id "com.android.application" version "7.3.1" apply false'
-          )
-
-          path.write_text(content)
-
-          print("AGP fixed to 7.3.1")
-          PY
-
-      # ==================================================
-      # 配置 flutter_local_notifications 17.2.2 所需
-      # 的旧版 Java desugaring
-      # ==================================================
+      # 配置脱糖
       - name: Configure desugaring
         run: |
           python3 - <<'PY'
           from pathlib import Path
-
           path = Path("android/app/build.gradle")
           content = path.read_text()
 
           if "coreLibraryDesugaringEnabled true" not in content:
               content = content.replace(
                   "compileOptions {",
-                  """compileOptions {
-                  coreLibraryDesugaringEnabled true""",
-                  1
+                  "compileOptions {\n        coreLibraryDesugaringEnabled true", 1
               )
 
-          if "desugar_jdk_libs:1.2.2" not in content:
-              if "dependencies {" in content:
-                  content = content.replace(
-                      "dependencies {",
-                      """dependencies {
-                  coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:1.2.2'""",
-                      1
-                  )
-              else:
-                  content += """
+          if "desugar_jdk_libs:2.1.4" not in content:
+              content += """
 
           dependencies {
-              coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:1.2.2'
+              coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
           }
           """
-
           path.write_text(content)
-
-          print("Desugaring configured: 1.2.2")
+          print("Desugaring configuration completed.")
           PY
 
-      # ==================================================
-      # Manifest：只增加权限
-      #
-      # 不再手动注册 flutter_local_notifications Receiver
-      # 插件自身会提供相应 Android 组件
-      # ==================================================
-      - name: Configure Android permissions
+      # 配置 Manifest 权限和名字
+      - name: Configure notification manifest
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path("android/app/src/main/AndroidManifest.xml")
           content = path.read_text()
@@ -128,126 +81,52 @@ jobs:
           permissions = [
               '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
               '<uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />',
+              '<uses-permission android:name="android.permission.USE_EXACT_ALARM" />',
               '<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />',
               '<uses-permission android:name="android.permission.VIBRATE" />'
           ]
 
           for permission in permissions:
               if permission not in content:
-                  content = content.replace(
-                      "<application",
-                      permission + "\n    <application",
-                      1
-                  )
+                  content = content.replace("<application", permission + "\n    <application", 1)
 
-          # 设置 APP 名称
-          if 'android:label="banbiao_xiaoli"' in content:
-              content = content.replace(
-                  'android:label="banbiao_xiaoli"',
-                  'android:label="我的记录"',
-                  1
-              )
+          application_pattern = r'<application\b[^>]*>'
+          match = re.search(application_pattern, content, flags=re.DOTALL)
+          if match:
+              application_tag = match.group(0)
+              if "android:label=" in application_tag:
+                  application_tag = re.sub(r'android:label="[^"]*"', 'android:label="我的记录"', application_tag, count=1)
+              else:
+                  application_tag = application_tag[:-1] + ' android:label="我的记录">'
+              content = content[:match.start()] + application_tag + content[match.end():]
+
+          receiver_text = """
+              <receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" android:exported="false" />
+              <receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver" android:exported="true">
+                  <intent-filter>
+                      <action android:name="android.intent.action.BOOT_COMPLETED" />
+                      <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                      <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                  </intent-filter>
+              </receiver>
+          """
+          if "ScheduledNotificationReceiver" not in content:
+              content = content.replace("</application>", receiver_text + "\n    </application>", 1)
 
           path.write_text(content)
-
-          print("Android permissions configured.")
+          print("Notification manifest configuration completed.")
           PY
 
-      # ==================================================
-      # 检查图标
-      # ==================================================
-      - name: Check icon
-        run: |
-          test -f icon.jpg
-          echo "icon.jpg found."
-
-      # ==================================================
-      # 清理依赖
-      # ==================================================
-      - name: Clean Flutter
-        run: |
-          flutter clean
-          rm -f pubspec.lock
-
-      # ==================================================
-      # 获取依赖
-      # ==================================================
-      - name: Flutter pub get
+      - name: Install dependencies
         run: flutter pub get
 
-      # ==================================================
-      # 这是这次最重要的检查
-      #
-      # 如果这里不是：
-      #
-      # shared_preferences_android 2.2.2
-      #
-      # 就直接停止，不进入编译
-      # ==================================================
-      - name: Verify shared_preferences_android
-        run: |
-          echo "===== Dependency tree ====="
-
-          flutter pub deps --style=compact | \
-            grep -E "shared_preferences($|_android)" || true
-
-          echo ""
-          echo "===== Checking resolved version ====="
-
-          VERSION=$(grep -A8 '^  shared_preferences_android:' pubspec.lock | grep 'version:' | head -1 | sed 's/.*version: //; s/"//g')
-
-          echo "Resolved shared_preferences_android = $VERSION"
-
-          if [ "$VERSION" != "2.2.2" ]; then
-            echo "ERROR: shared_preferences_android is not 2.2.2"
-            exit 1
-          fi
-
-          echo "Dependency version is correct."
-
-      # ==================================================
-      # 生成 APP 图标
-      # ==================================================
-      - name: Generate launcher icons
+      - name: Generate Launcher Icons
         run: dart run flutter_launcher_icons
 
-      # ==================================================
-      # 显示最终 Android 关键配置
-      # ==================================================
-      - name: Verify Android configuration
-        run: |
-          echo "========================================"
-          echo "settings.gradle"
-          echo "========================================"
-          cat android/settings.gradle
-
-          echo ""
-          echo "========================================"
-          echo "app/build.gradle desugaring"
-          echo "========================================"
-          grep -n -A8 -B3 "desugar" android/app/build.gradle || true
-
-          echo ""
-          echo "========================================"
-          echo "Gradle wrapper"
-          echo "========================================"
-          cat android/gradle/wrapper/gradle-wrapper.properties
-
-          echo ""
-          echo "========================================"
-          echo "Android Manifest"
-          echo "========================================"
-          cat android/app/src/main/AndroidManifest.xml
-
-      # ==================================================
-      # 正式编译
-      # ==================================================
+      # ⭐ 核心修复：加上 --no-shrink 彻底避开 R8 崩溃
       - name: Build release APK
         run: flutter build apk --release --no-shrink
 
-      # ==================================================
-      # 上传 APK
-      # ==================================================
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:

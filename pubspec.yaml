@@ -9,7 +9,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
   shared_preferences: 2.2.2
   path_provider: 2.1.4
   share_plus: 10.1.2
@@ -23,13 +22,12 @@ dev_dependencies:
   flutter_lints: ^4.0.0
   flutter_launcher_icons: ^0.13.1
 
-dependency_overrides:
-  shared_preferences_android: 2.2.2
-
 flutter:
   uses-material-design: true
 
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: false
-  image_path: "icon.jpg"
+  # ⚠️ 注意：这里一定要和你放在项目根目录的图片名字一模一样。
+  # 如果你之前重命名成了 icon.jpg 就写 icon.jpg，如果是 icon.png 就写 icon.png
+  image_path: "icon.jpg" 
