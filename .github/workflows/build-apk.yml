@@ -35,8 +35,29 @@ jobs:
 
       - name: Enable Core Library Desugaring
         run: |
-          sed -i 's/compileOptions {/compileOptions {\n        coreLibraryDesugaringEnabled true/' android/app/build.gradle
-          sed -i 's/dependencies {/dependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"/' android/app/build.gradle
+          cat << 'EOF' > fix_desugar.py
+          import re
+          path = "android/app/build.gradle"
+          with open(path, "r") as f:
+              content = f.read()
+
+          if "coreLibraryDesugaringEnabled" not in content:
+              content = content.replace("compileOptions {", "compileOptions {\n        coreLibraryDesugaringEnabled true")
+
+          if "coreLibraryDesugaring" not in content:
+              lines = content.split("\n")
+              out_lines = []
+              for line in lines:
+                  out_lines.append(line)
+                  if re.match(r"\s*dependencies\s*\{", line):
+                      indent = line[:len(line)-len(line.lstrip())]
+                      out_lines.append(indent + '    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"')
+              content = "\n".join(out_lines)
+
+          with open(path, "w") as f:
+              f.write(content)
+          EOF
+          python3 fix_desugar.py
 
       - name: Add Notification Permissions
         run: |
