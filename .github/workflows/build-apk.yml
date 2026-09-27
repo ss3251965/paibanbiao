@@ -35,10 +35,22 @@ jobs:
 
       - name: Fix Desugaring for Notifications
         run: |
-          # 精准开启脱糖编译选项
-          sed -i "s/compileOptions {/compileOptions {\n        coreLibraryDesugaringEnabled true/" android/app/build.gradle
-          # 精准插入脱糖依赖包
-          sed -i "/dependencies {/a\\    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'" android/app/build.gradle
+          cat << 'EOF' > fix_desugar.py
+          import os
+          path = "android/app/build.gradle"
+          with open(path, "r") as f:
+              content = f.read()
+
+          if "coreLibraryDesugaringEnabled" not in content:
+              content = content.replace("compileOptions {", "compileOptions {\n        coreLibraryDesugaringEnabled true")
+
+          if "coreLibraryDesugaring" not in content:
+              content += '\ndependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"\n}\n'
+
+          with open(path, "w") as f:
+              f.write(content)
+          EOF
+          python3 fix_desugar.py
 
       - name: Add Notification Permissions
         run: |
