@@ -59,6 +59,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         return StatefulBuilder(
           builder: (ctx, setSt) => AlertDialog(
             title: const Text('选择年月', style: TextStyle(fontSize: 16)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             content: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
@@ -76,6 +77,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 ),
               ],
             ),
+            actionsPadding: const EdgeInsets.only(right: 10, bottom: 10),
             actions: [
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
               FilledButton(
@@ -92,7 +94,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
-  // 精简版弹窗
+  // 重构后的小巧极简弹窗
   Future<void> _openPicker(DateTime date) async {
     final k = _key(date);
     final existing = _records[k] ?? DayRecord();
@@ -103,66 +105,85 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
     await showModalBottomSheet(
       context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
+      // 取消 isScrollControlled，让它高度自适应内容，不再强行撑大
+      backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
       builder: (ctx) {
         return Padding(
           padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
           child: SafeArea(
-            child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
               child: StatefulBuilder(
                 builder: (ctx, setSt) => Column(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('${date.year}年${date.month}月${date.day}日',
-                              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                          IconButton(
-                            icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-                            onPressed: () { Navigator.pop(ctx); _setRecord(date, '', false); },
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
+                    // 第一行：日期和删除按钮，紧凑排列
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('${date.year}年${date.month}月${date.day}日',
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                        GestureDetector(
+                          onTap: () { Navigator.pop(ctx); _setRecord(date, '', false); },
+                          child: const Padding(
+                            padding: EdgeInsets.all(4),
+                            child: Icon(Icons.delete_outline, color: Colors.red, size: 20),
                           ),
-                        ],
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                      child: TextField(
-                        controller: noteCtl,
-                        style: const TextStyle(fontSize: 14),
-                        decoration: const InputDecoration(
-                          hintText: '写点什么...',
-                          isDense: true,
-                          contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                          border: OutlineInputBorder(),
                         ),
-                        maxLines: 2,
-                      ),
-                    ),
-                    CheckboxListTile(
-                      value: isDone,
-                      onChanged: (v) => setSt(() => isDone = v!),
-                      title: const Text('标记为已完成', style: TextStyle(fontSize: 14)),
-                      controlAffinity: ListTileControlAffinity.leading,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                      dense: true,
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: FilledButton(
-                          onPressed: () { Navigator.pop(ctx); _setRecord(date, noteCtl.text, isDone); },
-                          child: const Text('保存'),
-                        ),
-                      ),
+                      ],
                     ),
                     const SizedBox(height: 8),
+                    // 第二行：输入框
+                    TextField(
+                      controller: noteCtl,
+                      style: const TextStyle(fontSize: 14),
+                      decoration: InputDecoration(
+                        hintText: '写点什么...',
+                        isDense: true,
+                        filled: true,
+                        fillColor: Theme.of(context).scaffoldBackgroundColor,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                      maxLines: 2,
+                    ),
+                    const SizedBox(height: 8),
+                    // 第三行：勾选框和保存按钮并排，节省空间
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            SizedBox(
+                              width: 24, height: 24,
+                              child: Checkbox(
+                                value: isDone,
+                                onChanged: (v) => setSt(() => isDone = v!),
+                                visualDensity: VisualDensity.compact,
+                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Text('已完成', style: TextStyle(fontSize: 13)),
+                          ],
+                        ),
+                        FilledButton(
+                          onPressed: () { Navigator.pop(ctx); _setRecord(date, noteCtl.text, isDone); },
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size(60, 32),
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                          ),
+                          child: const Text('保存', style: TextStyle(fontSize: 13)),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -200,6 +221,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     final leading = first.weekday % 7;
     final total = leading + daysInMonth;
     final today = DateTime.now();
+    final totalRows = (total / 7).ceil();
 
     return Scaffold(
       appBar: AppBar(
@@ -222,47 +244,52 @@ class _CalendarScreenState extends State<CalendarScreen> {
           _monthBar(year, month),
           _weekdayHeader(),
           Expanded(
-            // 加入手势滑动
             child: GestureDetector(
               onHorizontalDragEnd: (details) {
                 if (details.primaryVelocity! > 0) {
-                  _changeMonth(-1); // 右滑，上个月
+                  _changeMonth(-1);
                 } else if (details.primaryVelocity! < 0) {
-                  _changeMonth(1); // 左滑，下个月
+                  _changeMonth(1);
                 }
               },
-              child: GridView.builder(
-                padding: const EdgeInsets.fromLTRB(2, 2, 2, 2), // 缩小边距
-                // 调整比例，让日历撑满屏幕，不再只占一半
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 7,
-                  childAspectRatio: 0.62, // 高度拉长，撑满剩余空间
-                  crossAxisSpacing: 2,
-                  mainAxisSpacing: 2,
-                ),
-                itemCount: total,
-                itemBuilder: (context, index) {
-                  if (index < leading) return const SizedBox.shrink();
-                  final day = index - leading + 1;
-                  final date = DateTime(year, month, day);
-                  final rec = _records[_key(date)];
-                  final isToday = date.year == today.year && date.month == today.month && date.day == today.day;
-                  final isSelected = _selectedDate != null && date.year == _selectedDate!.year && date.month == _selectedDate!.month && date.day == _selectedDate!.day;
-                  
-                  String lunarText = '';
-                  final holiday = _holidays['${date.month}-${date.day}'];
-                  final lunar = Lunar.fromDate(date);
-                  if (holiday != null) {
-                    lunarText = holiday;
-                  } else if (lunar.getJieQi().isNotEmpty) {
-                    lunarText = lunar.getJieQi();
-                  } else if (lunar.getFestivals().isNotEmpty) {
-                    lunarText = lunar.getFestivals().first;
-                  } else {
-                    lunarText = lunar.getDayInChinese();
-                  }
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  double itemWidth = constraints.maxWidth / 7;
+                  double itemHeight = constraints.maxHeight / totalRows;
+                  return GridView.builder(
+                    physics: const NeverScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(2, 2, 2, 4),
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 7,
+                      childAspectRatio: itemWidth / itemHeight,
+                      crossAxisSpacing: 2,
+                      mainAxisSpacing: 2,
+                    ),
+                    itemCount: total,
+                    itemBuilder: (context, index) {
+                      if (index < leading) return const SizedBox.shrink();
+                      final day = index - leading + 1;
+                      final date = DateTime(year, month, day);
+                      final rec = _records[_key(date)];
+                      final isToday = date.year == today.year && date.month == today.month && date.day == today.day;
+                      final isSelected = _selectedDate != null && date.year == _selectedDate!.year && date.month == _selectedDate!.month && date.day == _selectedDate!.day;
+                      
+                      String lunarText = '';
+                      final holiday = _holidays['${date.month}-${date.day}'];
+                      final lunar = Lunar.fromDate(date);
+                      if (holiday != null) {
+                        lunarText = holiday;
+                      } else if (lunar.getJieQi().isNotEmpty) {
+                        lunarText = lunar.getJieQi();
+                      } else if (lunar.getFestivals().isNotEmpty) {
+                        lunarText = lunar.getFestivals().first;
+                      } else {
+                        lunarText = lunar.getDayInChinese();
+                      }
 
-                  return _dayCell(date, day, rec, lunarText, isToday, isSelected);
+                      return _dayCell(date, day, rec, lunarText, isToday, isSelected);
+                    },
+                  );
                 },
               ),
             ),
@@ -313,47 +340,46 @@ class _CalendarScreenState extends State<CalendarScreen> {
     }
 
     return InkWell(
-      borderRadius: BorderRadius.circular(4),
+      borderRadius: BorderRadius.circular(6),
       onTap: () => _openPicker(date),
       child: Container(
         decoration: BoxDecoration(
           color: theme.cardColor,
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.circular(6),
           border: isSelected ? Border.all(color: Colors.orange, width: 1.5)
-              : (isToday ? Border.all(color: theme.colorScheme.primary, width: 1) : null),
+              : (isToday ? Border.all(color: theme.colorScheme.primary, width: 1.5) : null),
         ),
-        padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 1), // 极度缩减内边距
+        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 1),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Text('$day', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: isWeekend ? Colors.red : null)),
-            const SizedBox(height: 1),
+            const SizedBox(height: 2),
             Text(
               lunarText,
               maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 8, color: lunarColor), // 字号缩小，防止溢出
+              style: TextStyle(fontSize: 9, color: lunarColor),
             ),
             const Spacer(),
             if (displayText.isNotEmpty)
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 1, horizontal: 1),
+                padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
                 decoration: BoxDecoration(
                   color: isDone ? Colors.grey.withOpacity(0.2) : theme.colorScheme.primary.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(3),
+                  borderRadius: BorderRadius.circular(4),
                 ),
-                // 使用 FittedBox 让文字自动缩放，尽量显示更多字
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    displayText,
-                    maxLines: 1,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 9, fontWeight: FontWeight.w600,
-                      color: isDone ? Colors.grey : theme.colorScheme.primary,
-                      decoration: isDone ? TextDecoration.lineThrough : null,
-                    ),
+                child: Text(
+                  displayText,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 9,
+                    height: 1.1,
+                    fontWeight: FontWeight.w600,
+                    color: isDone ? Colors.grey : theme.colorScheme.primary,
+                    decoration: isDone ? TextDecoration.lineThrough : null,
                   ),
                 ),
               ),
