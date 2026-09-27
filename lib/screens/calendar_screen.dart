@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lunar/lunar.dart';
 import '../models/day_record.dart';
+import '../models/shift.dart'; // 修复：重新导入 Shift 模型
 import '../services/storage_service.dart';
 import '../services/export_service.dart';
 import 'cycle_screen.dart';
@@ -14,6 +15,7 @@ class CalendarScreen extends StatefulWidget {
 
 class _CalendarScreenState extends State<CalendarScreen> {
   final _storage = StorageService();
+  late PageController _pageController;
   DateTime _current = DateTime(DateTime.now().year, DateTime.now().month);
   DateTime? _selectedDate;
   Map<String, DayRecord> _records = {};
@@ -30,7 +32,16 @@ class _CalendarScreenState extends State<CalendarScreen> {
   void initState() {
     super.initState();
     _selectedDate = DateTime.now();
+    _pageController = PageController(
+      initialPage: (DateTime.now().year - 2000) * 12 + DateTime.now().month - 1,
+    );
     _load();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -53,6 +64,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setSt) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             title: const Text('选择年月', style: TextStyle(fontSize: 16)),
             contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             content: Row(
@@ -77,6 +89,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
               TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
               FilledButton(
                 onPressed: () {
+                  final targetIndex = (selectedYear - 2000) * 12 + selectedMonth - 1;
+                  if (_pageController.hasClients) {
+                    _pageController.animateToPage(
+                      targetIndex,
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeInOut,
+                    );
+                  }
                   setState(() => _current = DateTime(selectedYear, selectedMonth));
                   Navigator.pop(ctx);
                 },
@@ -89,7 +109,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
-  // 1. 点击日期空白处，设置主记录
   Future<void> _openPicker(DateTime date) async {
     final k = _key(date);
     final existing = _records[k] ?? DayRecord();
@@ -102,7 +121,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       context: context,
       backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
         return Padding(
@@ -140,7 +159,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         fillColor: Theme.of(context).scaffoldBackgroundColor,
                         contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(12),
                           borderSide: BorderSide.none,
                         ),
                       ),
@@ -170,6 +189,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           style: FilledButton.styleFrom(
                             minimumSize: const Size(60, 32),
                             padding: const EdgeInsets.symmetric(horizontal: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                           ),
                           child: const Text('保存', style: TextStyle(fontSize: 13)),
                         ),
@@ -185,69 +205,87 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
-  // 2. 点击记录胶囊，弹出的极简小气泡
   Future<void> _showRecordDetail(DateTime date, DayRecord rec) async {
     final detailCtl = TextEditingController(text: rec.detail);
     bool isDone = rec.isDone;
 
-    await showDialog(
+    await showGeneralDialog(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSt) => AlertDialog(
-          // 极简：去掉多余的内边距
-          contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          title: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // 标题就是记录的名称
-              Text(rec.note, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              // 在这里可以修改状态
-              Row(
-                children: [
-                  SizedBox(
-                    width: 24, height: 24,
-                    child: Checkbox(
-                      value: isDone,
-                      onChanged: (v) => setSt(() => isDone = v!),
-                      visualDensity: VisualDensity.compact,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 250),
+      pageBuilder: (ctx, anim1, anim2) {
+        return StatefulBuilder(
+          builder: (ctx, setSt) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
+            title: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(rec.note, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 24, height: 24,
+                      child: Checkbox(
+                        value: isDone,
+                        onChanged: (v) => setSt(() => isDone = v!),
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 4),
-                  const Text('已完成', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                ],
+                    const SizedBox(width: 4),
+                    const Text('已完成', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  ],
+                ),
+              ],
+            ),
+            content: TextField(
+              controller: detailCtl,
+              decoration: InputDecoration(
+                hintText: '写详细说明（不显示在主页）...',
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              maxLines: 3,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  setState(() {
+                    rec.detail = detailCtl.text;
+                    rec.isDone = isDone;
+                  });
+                  _storage.saveRecords(_records);
+                  Navigator.pop(ctx);
+                },
+                style: FilledButton.styleFrom(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+                child: const Text('保存'),
               ),
             ],
           ),
-          content: TextField(
-            controller: detailCtl,
-            decoration: const InputDecoration(
-              hintText: '写详细说明（不显示在主页）...',
-              isDense: true,
-              border: OutlineInputBorder(),
-            ),
-            maxLines: 3,
+        );
+      },
+      transitionBuilder: (ctx, anim1, anim2, child) {
+        final curvedAnim = CurvedAnimation(parent: anim1, curve: Curves.easeOutBack);
+        return FadeTransition(
+          opacity: anim1,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.85, end: 1.0).animate(curvedAnim),
+            child: child,
           ),
-          actions: [
-            TextButton(
-              onPressed: () { Navigator.pop(ctx); },
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () {
-                setState(() {
-                  rec.detail = detailCtl.text;
-                  rec.isDone = isDone;
-                });
-                _storage.saveRecords(_records);
-                Navigator.pop(ctx);
-              },
-              child: const Text('保存'),
-            ),
-          ],
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -260,26 +298,36 @@ class _CalendarScreenState extends State<CalendarScreen> {
     await _storage.saveRecords(_records);
   }
 
-  void _changeMonth(int delta) => setState(() => _current = DateTime(_current.year, _current.month + delta));
+  void _changeMonth(int delta) {
+    if (_pageController.hasClients) {
+      if (delta > 0) {
+        _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+      } else {
+        _pageController.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+      }
+    }
+  }
 
   void _goToday() {
     final now = DateTime.now();
-    setState(() { _current = DateTime(now.year, now.month); _selectedDate = now; });
+    final index = (now.year - 2000) * 12 + now.month - 1;
+    if (_pageController.hasClients) {
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+    setState(() {
+      _selectedDate = now;
+    });
   }
 
-  Future<void> _export() async => await ExportService.exportCsv(records: _records, shifts: []);
+  // 修复：显式传入空的 Shift 列表，解决类型推断失败的问题
+  Future<void> _export() async => await ExportService.exportCsv(records: _records, shifts: <Shift>[]);
 
   @override
   Widget build(BuildContext context) {
-    final year = _current.year;
-    final month = _current.month;
-    final first = DateTime(year, month, 1);
-    final daysInMonth = DateTime(year, month + 1, 0).day;
-    final leading = first.weekday % 7;
-    final total = leading + daysInMonth;
-    final today = DateTime.now();
-    final totalRows = (total / 7).ceil();
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('班表小历'), centerTitle: true,
@@ -296,53 +344,71 @@ class _CalendarScreenState extends State<CalendarScreen> {
       ),
       body: _loading ? const Center(child: CircularProgressIndicator()) : Column(
         children: [
-          _monthBar(year, month),
+          _monthBar(_current.year, _current.month),
           _weekdayHeader(),
           Expanded(
-            child: GestureDetector(
-              onHorizontalDragEnd: (details) {
-                if (details.primaryVelocity! > 0) _changeMonth(-1);
-                else if (details.primaryVelocity! < 0) _changeMonth(1);
+            child: PageView.builder(
+              controller: _pageController,
+              itemCount: 500 * 12,
+              onPageChanged: (index) {
+                final date = DateTime(2000 + (index ~/ 12), 1 + (index % 12), 1);
+                setState(() {
+                  _current = date;
+                });
               },
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  double itemWidth = constraints.maxWidth / 7;
-                  double itemHeight = constraints.maxHeight / totalRows;
-                  return GridView.builder(
-                    physics: const NeverScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(2, 2, 2, 4),
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 7,
-                      childAspectRatio: itemWidth / itemHeight,
-                      crossAxisSpacing: 2,
-                      mainAxisSpacing: 2,
-                    ),
-                    itemCount: total,
-                    itemBuilder: (context, index) {
-                      if (index < leading) return const SizedBox.shrink();
-                      final day = index - leading + 1;
-                      final date = DateTime(year, month, day);
-                      final rec = _records[_key(date)];
-                      final isToday = date.year == today.year && date.month == today.month && date.day == today.day;
-                      final isSelected = _selectedDate != null && date.year == _selectedDate!.year && date.month == _selectedDate!.month && date.day == _selectedDate!.day;
-                      
-                      String lunarText = '';
-                      final holiday = _holidays['${date.month}-${date.day}'];
-                      final lunar = Lunar.fromDate(date);
-                      if (holiday != null) lunarText = holiday;
-                      else if (lunar.getJieQi().isNotEmpty) lunarText = lunar.getJieQi();
-                      else if (lunar.getFestivals().isNotEmpty) lunarText = lunar.getFestivals().first;
-                      else lunarText = lunar.getDayInChinese();
-
-                      return _dayCell(date, day, rec, lunarText, isToday, isSelected);
-                    },
-                  );
-                },
-              ),
+              itemBuilder: (context, index) {
+                final date = DateTime(2000 + (index ~/ 12), 1 + (index % 12), 1);
+                return _buildMonthGrid(date.year, date.month);
+              },
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildMonthGrid(int year, int month) {
+    final first = DateTime(year, month, 1);
+    final daysInMonth = DateTime(year, month + 1, 0).day;
+    final leading = first.weekday % 7;
+    final total = leading + daysInMonth;
+    final totalRows = (total / 7).ceil();
+    final today = DateTime.now();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        double itemWidth = constraints.maxWidth / 7;
+        double itemHeight = constraints.maxHeight / totalRows;
+        return GridView.builder(
+          physics: const NeverScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(2, 2, 2, 4),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 7,
+            childAspectRatio: itemWidth / itemHeight,
+            crossAxisSpacing: 2,
+            mainAxisSpacing: 2,
+          ),
+          itemCount: total,
+          itemBuilder: (context, index) {
+            if (index < leading) return const SizedBox.shrink();
+            final day = index - leading + 1;
+            final date = DateTime(year, month, day);
+            final rec = _records[_key(date)];
+            final isToday = date.year == today.year && date.month == today.month && date.day == today.day;
+            final isSelected = _selectedDate != null && date.year == _selectedDate!.year && date.month == _selectedDate!.month && date.day == _selectedDate!.day;
+            
+            String lunarText = '';
+            final holiday = _holidays['${date.month}-${date.day}'];
+            final lunar = Lunar.fromDate(date);
+            if (holiday != null) lunarText = holiday;
+            else if (lunar.getJieQi().isNotEmpty) lunarText = lunar.getJieQi();
+            else if (lunar.getFestivals().isNotEmpty) lunarText = lunar.getFestivals().first;
+            else lunarText = lunar.getDayInChinese();
+
+            return _dayCell(date, day, rec, lunarText, isToday, isSelected);
+          },
+        );
+      },
     );
   }
 
@@ -388,32 +454,28 @@ class _CalendarScreenState extends State<CalendarScreen> {
     }
 
     return InkWell(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(12),
       onTap: () => _openPicker(date),
       child: Container(
         decoration: BoxDecoration(
           color: isSelected 
               ? Colors.orange.withOpacity(0.15) 
               : (isToday ? theme.colorScheme.primary.withOpacity(0.1) : Colors.transparent),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(12),
         ),
-        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 1),
+        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // 日期
             Text('$day', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: isWeekend ? Colors.red : null)),
             const SizedBox(height: 1),
-            // 农历
             Text(
               lunarText,
               maxLines: 1, overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 9, color: lunarColor),
             ),
-            // ⭐ 空一行（增加间距），用来把记录和农历隔开
             const SizedBox(height: 8), 
-            // 记录（只有有记录时才显示）
             if (displayText.isNotEmpty)
               GestureDetector(
                 onTap: () {
@@ -421,10 +483,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 },
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+                  padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
                   decoration: BoxDecoration(
                     color: isDone ? Colors.grey.withOpacity(0.2) : theme.colorScheme.primary.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(4),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
                     displayText,
