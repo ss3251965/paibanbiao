@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lunar/lunar.dart';
 import '../models/day_record.dart';
-import '../models/shift.dart'; // 修复：重新导入 Shift 模型
+import '../models/shift.dart';
 import '../services/storage_service.dart';
 import '../services/export_service.dart';
 import 'cycle_screen.dart';
@@ -163,7 +163,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           borderSide: BorderSide.none,
                         ),
                       ),
-                      maxLines: 2,
+                      maxLines: 3,
                     ),
                     const SizedBox(height: 8),
                     Row(
@@ -323,14 +323,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
     });
   }
 
-  // 修复：显式传入空的 Shift 列表，解决类型推断失败的问题
   Future<void> _export() async => await ExportService.exportCsv(records: _records, shifts: <Shift>[]);
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('班表小历'), centerTitle: true,
+        // 需求 3：标题改为“我的记录”
+        title: const Text('我的记录'), centerTitle: true,
         actions: [
           IconButton(tooltip: '周期排班', icon: const Icon(Icons.autorenew), onPressed: () async {
             await Navigator.push(context, MaterialPageRoute(builder: (_) => CycleScreen(onApply: _load)));
@@ -468,14 +468,17 @@ class _CalendarScreenState extends State<CalendarScreen> {
           mainAxisAlignment: MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Text('$day', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: isWeekend ? Colors.red : null)),
-            const SizedBox(height: 1),
+            // 需求 4：日期数字放大到 18
+            Text('$day', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isWeekend ? Colors.red : null)),
+            const SizedBox(height: 2),
+            // 需求 4：农历字体放大到 10
             Text(
               lunarText,
               maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 9, color: lunarColor),
+              style: TextStyle(fontSize: 10, color: lunarColor),
             ),
-            const SizedBox(height: 8), 
+            // 需求 1：农历和记录之间，空出 12 像素的间距（相当于空一行）
+            const SizedBox(height: 12), 
             if (displayText.isNotEmpty)
               GestureDetector(
                 onTap: () {
@@ -488,14 +491,15 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     color: isDone ? Colors.grey.withOpacity(0.2) : theme.colorScheme.primary.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
+                  // 需求 2：记录最多显示3行，行高改为 1.5（让行与行之间像空了一行），字体增大到 11
                   child: Text(
                     displayText,
-                    maxLines: 2,
+                    maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: 9,
-                      height: 1.1,
+                      fontSize: 11,
+                      height: 1.5, 
                       fontWeight: FontWeight.w600,
                       color: isDone ? Colors.grey : theme.colorScheme.primary,
                       decoration: isDone ? TextDecoration.lineThrough : null,
