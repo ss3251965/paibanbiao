@@ -1,5 +1,5 @@
 name: banbiao_xiaoli
-description: 班表小历
+description: 我的记录
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -12,7 +12,9 @@ dependencies:
   shared_preferences: 2.2.2
   path_provider: 2.1.4
   share_plus: 10.1.2
-  lunar: ^1.7.4 # 纯 Dart 农历库，安全无痛
+  lunar: ^1.7.4
+  flutter_local_notifications: ^17.2.2
+  timezone: ^0.9.4
 
 dev_dependencies:
   flutter_test:
@@ -26,4 +28,4 @@ flutter:
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: false
-  image_path: "icon.jpg" # 
+  image_path: "icon.jpg" # 如果你的图标是 png，请改成 icon.png

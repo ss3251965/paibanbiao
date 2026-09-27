@@ -33,6 +33,44 @@ jobs:
           sed -i 's|ext.kotlin_version = .*|ext.kotlin_version = "1.9.22"|' android/build.gradle
           sed -i 's|id "org.jetbrains.kotlin.android" version ".*"|id "org.jetbrains.kotlin.android" version "1.9.22"|' android/settings.gradle
 
+      - name: Enable Core Library Desugaring for Notifications
+        run: |
+          sed -i 's/compileOptions {/compileOptions {\n        coreLibraryDesugaringEnabled true/' android/app/build.gradle
+          sed -i 's/dependencies {/dependencies {\n    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"/' android/app/build.gradle
+
+      - name: Add Notification Permissions and Receivers to AndroidManifest
+        run: |
+          python3 -c "
+import os
+manifest_path = 'android/app/src/main/AndroidManifest.xml'
+with open(manifest_path, 'r') as f:
+    content = f.read()
+
+perms = '''    <uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\" />
+    <uses-permission android:name=\"android.permission.SCHEDULE_EXACT_ALARM\" />
+    <uses-permission android:name=\"android.permission.USE_EXACT_ALARM\" />
+    <uses-permission android:name=\"android.permission.RECEIVE_BOOT_COMPLETED\" />
+    <uses-permission android:name=\"android.permission.VIBRATE\" />
+'''
+if 'POST_NOTIFICATIONS' not in content:
+    content = content.replace('<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">', '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n' + perms)
+
+receivers = '''        <receiver android:name=\"com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver\" />
+        <receiver android:name=\"com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver\">
+            <intent-filter>
+                <action android:name=\"android.intent.action.BOOT_COMPLETED\" />
+                <action android:name=\"android.intent.action.MY_PACKAGE_REPLACED\" />
+                <action android:name=\"android.intent.action.QUICKBOOT_POWERON\" />
+            </intent-filter>
+        </receiver>
+'''
+if 'ScheduledNotificationReceiver' not in content:
+    content = content.replace('</application>', receivers + '\n</application>')
+
+with open(manifest_path, 'w') as f:
+    f.write(content)
+"
+
       - name: Set App Name
         run: |
           sed -i 's/android:label=".*"/android:label="我的记录"/' android/app/src/main/AndroidManifest.xml

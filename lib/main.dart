@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'screens/calendar_screen.dart';
+import 'services/notification_service.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await NotificationService.init(); // 初始化通知
   runApp(const BanBiaoApp());
 }
 
@@ -11,7 +14,7 @@ class BanBiaoApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '班表小历',
+      title: '我的记录',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.system,
       theme: ThemeData(

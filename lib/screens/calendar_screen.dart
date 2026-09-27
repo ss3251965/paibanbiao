@@ -4,6 +4,7 @@ import '../models/day_record.dart';
 import '../models/shift.dart';
 import '../services/storage_service.dart';
 import '../services/export_service.dart';
+import '../services/notification_service.dart';
 import 'cycle_screen.dart';
 
 class CalendarScreen extends StatefulWidget {
@@ -114,6 +115,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
     final existing = _records[k] ?? DayRecord();
     final noteCtl = TextEditingController(text: existing.note);
     bool isDone = existing.isDone;
+    bool hasRingtone = existing.hasRingtone;
+    String ringtoneType = existing.ringtoneType;
+    String reminderTime = existing.reminderTime;
 
     setState(() => _selectedDate = date);
 
@@ -140,7 +144,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         Text('${date.year}年${date.month}月${date.day}日',
                             style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                         GestureDetector(
-                          onTap: () { Navigator.pop(ctx); _setRecord(date, '', '', false); },
+                          onTap: () { Navigator.pop(ctx); _setRecord(date, '', '', false, false, '默认', '08:00'); },
                           child: const Padding(
                             padding: EdgeInsets.all(4),
                             child: Icon(Icons.delete_outline, color: Colors.red, size: 20),
@@ -167,7 +171,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     ),
                     const SizedBox(height: 8),
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Row(
                           children: [
@@ -184,16 +187,79 @@ class _CalendarScreenState extends State<CalendarScreen> {
                             const Text('已完成', style: TextStyle(fontSize: 13)),
                           ],
                         ),
-                        FilledButton(
-                          onPressed: () { Navigator.pop(ctx); _setRecord(date, noteCtl.text, '', isDone); },
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size(60, 32),
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          ),
-                          child: const Text('保存', style: TextStyle(fontSize: 13)),
+                        const SizedBox(width: 16), // 空几个字
+                        Row(
+                          children: [
+                            SizedBox(
+                              width: 24, height: 24,
+                              child: Checkbox(
+                                value: hasRingtone,
+                                onChanged: (v) => setSt(() => hasRingtone = v!),
+                                visualDensity: VisualDensity.compact,
+                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            const Text('铃声', style: TextStyle(fontSize: 13)),
+                          ],
                         ),
+                        const SizedBox(width: 8),
+                        if (hasRingtone)
+                          DropdownButton<String>(
+                            value: ringtoneType,
+                            isDense: true,
+                            style: const TextStyle(fontSize: 13),
+                            underline: const SizedBox(),
+                            items: const [
+                              DropdownMenuItem(value: '默认', child: Text('默认')),
+                              DropdownMenuItem(value: '通知', child: Text('通知音')),
+                              DropdownMenuItem(value: '闹钟', child: Text('闹钟音')),
+                            ],
+                            onChanged: (v) => setSt(() => ringtoneType = v!),
+                          ),
+                        const SizedBox(width: 8),
+                        // 自定义时间按钮
+                        if (hasRingtone)
+                          GestureDetector(
+                            onTap: () async {
+                              final TimeOfDay? picked = await showTimePicker(
+                                context: context,
+                                initialTime: TimeOfDay(
+                                  hour: int.parse(reminderTime.split(':')[0]),
+                                  minute: int.parse(reminderTime.split(':')[1]),
+                                ),
+                              );
+                              if (picked != null) {
+                                setSt(() {
+                                  reminderTime = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+                                });
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Theme.of(context).scaffoldBackgroundColor,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(reminderTime, style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold)),
+                            ),
+                          ),
                       ],
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 40,
+                      child: FilledButton(
+                        onPressed: () { 
+                          Navigator.pop(ctx); 
+                          _setRecord(date, noteCtl.text, '', isDone, hasRingtone, ringtoneType, reminderTime); 
+                        },
+                        style: FilledButton.styleFrom(
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        ),
+                        child: const Text('保存', style: TextStyle(fontSize: 14)),
+                      ),
                     ),
                   ],
                 ),
@@ -289,13 +355,18 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
-  Future<void> _setRecord(DateTime date, String note, String detail, bool isDone) async {
+  Future<void> _setRecord(DateTime date, String note, String detail, bool isDone, bool hasRingtone, String ringtoneType, String reminderTime) async {
     final k = _key(date);
+    final record = DayRecord(note: note, detail: detail, isDone: isDone, hasRingtone: hasRingtone, ringtoneType: ringtoneType, reminderTime: reminderTime);
     setState(() {
       if (note.isEmpty && detail.isEmpty) _records.remove(k);
-      else _records[k] = DayRecord(note: note, detail: detail, isDone: isDone);
+      else _records[k] = record;
     });
     await _storage.saveRecords(_records);
+    
+    if (hasRingtone && note.isNotEmpty) {
+      await NotificationService.scheduleNotification(date, record);
+    }
   }
 
   void _changeMonth(int delta) {
@@ -329,7 +400,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        // 需求 3：标题改为“我的记录”
         title: const Text('我的记录'), centerTitle: true,
         actions: [
           IconButton(tooltip: '周期排班', icon: const Icon(Icons.autorenew), onPressed: () async {
@@ -463,21 +533,18 @@ class _CalendarScreenState extends State<CalendarScreen> {
               : (isToday ? theme.colorScheme.primary.withOpacity(0.1) : Colors.transparent),
           borderRadius: BorderRadius.circular(12),
         ),
-        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // 需求 4：日期数字放大到 18
             Text('$day', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isWeekend ? Colors.red : null)),
             const SizedBox(height: 2),
-            // 需求 4：农历字体放大到 10
             Text(
               lunarText,
               maxLines: 1, overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 10, color: lunarColor),
             ),
-            // 需求 1：农历和记录之间，空出 12 像素的间距（相当于空一行）
             const SizedBox(height: 12), 
             if (displayText.isNotEmpty)
               GestureDetector(
@@ -486,12 +553,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 },
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+                  padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 1),
                   decoration: BoxDecoration(
                     color: isDone ? Colors.grey.withOpacity(0.2) : theme.colorScheme.primary.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  // 需求 2：记录最多显示3行，行高改为 1.5（让行与行之间像空了一行），字体增大到 11
                   child: Text(
                     displayText,
                     maxLines: 3,
@@ -500,6 +566,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     style: TextStyle(
                       fontSize: 11,
                       height: 1.5, 
+                      letterSpacing: -0.5,
                       fontWeight: FontWeight.w600,
                       color: isDone ? Colors.grey : theme.colorScheme.primary,
                       decoration: isDone ? TextDecoration.lineThrough : null,
