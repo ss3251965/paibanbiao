@@ -16,6 +16,7 @@ class CalendarScreen extends StatefulWidget {
 class _CalendarScreenState extends State<CalendarScreen> {
   final _storage = StorageService();
   DateTime _current = DateTime(DateTime.now().year, DateTime.now().month);
+  DateTime? _selectedDate;
   Map<String, DayRecord> _records = {};
   List<Shift> _shifts = [];
   bool _loading = true;
@@ -23,6 +24,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   @override
   void initState() {
     super.initState();
+    _selectedDate = DateTime.now();
     _load();
   }
 
@@ -48,7 +50,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
     return null;
   }
 
-  // 点击年月弹出的选择器
   Future<void> _showYearMonthPicker(BuildContext context) async {
     int selectedYear = _current.year;
     int selectedMonth = _current.month;
@@ -79,15 +80,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
               ],
             ),
             actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('取消'),
-              ),
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
               FilledButton(
                 onPressed: () {
-                  setState(() {
-                    _current = DateTime(selectedYear, selectedMonth);
-                  });
+                  setState(() => _current = DateTime(selectedYear, selectedMonth));
                   Navigator.pop(ctx);
                 },
                 child: const Text('确定'),
@@ -99,85 +95,90 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
-  // 点击日期，弹出设置班次和备注的窗口
   Future<void> _openPicker(DateTime date) async {
     final k = _key(date);
     final existing = _records[k] ?? DayRecord();
-    final shiftId = existing.shiftId;
     final noteCtl = TextEditingController(text: existing.note);
+    bool isDone = existing.isDone;
+    String currentShiftId = existing.shiftId;
+
+    setState(() => _selectedDate = date);
 
     await showModalBottomSheet(
       context: context,
       showDragHandle: true,
-      isScrollControlled: true, // 允许键盘弹起时撑高界面
+      isScrollControlled: true,
       builder: (ctx) {
         return Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom), // 键盘避让
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
           child: SafeArea(
             child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-                    child: Row(
-                      children: [
-                        Text('${date.year}年${date.month}月${date.day}日',
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                      ],
-                    ),
-                  ),
-                  ..._shifts.map((s) => ListTile(
-                        leading: Container(
-                          width: 22,
-                          height: 22,
-                          decoration: BoxDecoration(
-                            color: s.color,
-                            borderRadius: BorderRadius.circular(6),
+              child: StatefulBuilder(
+                builder: (ctx, setSt) => Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('${date.year}年${date.month}月${date.day}日',
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.red),
+                            tooltip: '删除此记录',
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              _setRecord(date, '', '', false);
+                            },
                           ),
-                        ),
-                        title: Text(s.name),
-                        trailing: shiftId == s.id ? const Icon(Icons.check, color: Colors.blue) : null,
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          _setRecord(date, s.id, existing.note);
-                        },
-                      )),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    child: TextField(
-                      controller: noteCtl,
-                      decoration: const InputDecoration(
-                        labelText: '特殊记录（如：开会、请假）',
-                        border: OutlineInputBorder(),
+                        ],
                       ),
-                      maxLines: 2,
                     ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        TextButton(
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            _setRecord(date, '', noteCtl.text);
-                          },
-                          child: const Text('只存备注/清除班次'),
+                    ..._shifts.map((s) => ListTile(
+                          leading: Container(
+                            width: 22, height: 22,
+                            decoration: BoxDecoration(color: s.color, borderRadius: BorderRadius.circular(6)),
+                          ),
+                          title: Text(s.name),
+                          trailing: currentShiftId == s.id ? const Icon(Icons.check, color: Colors.blue) : null,
+                          onTap: () => setSt(() => currentShiftId = s.id),
+                        )),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      child: TextField(
+                        controller: noteCtl,
+                        decoration: const InputDecoration(
+                          labelText: '自定义记录（如：跑步、会议）',
+                          border: OutlineInputBorder(),
                         ),
-                        FilledButton(
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            _setRecord(date, shiftId, noteCtl.text);
-                          },
-                          child: const Text('保存'),
-                        ),
-                      ],
+                        maxLines: 2,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
+                    CheckboxListTile(
+                      value: isDone,
+                      onChanged: (v) => setSt(() => isDone = v!),
+                      title: const Text('标记为已完成'),
+                      controlAffinity: ListTileControlAffinity.leading,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          FilledButton(
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              _setRecord(date, currentShiftId, noteCtl.text, isDone);
+                            },
+                            child: const Text('保存'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                ),
               ),
             ),
           ),
@@ -186,13 +187,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
-  Future<void> _setRecord(DateTime date, String shiftId, String note) async {
+  Future<void> _setRecord(DateTime date, String shiftId, String note, bool isDone) async {
     final k = _key(date);
     setState(() {
       if (shiftId.isEmpty && note.isEmpty) {
         _records.remove(k);
       } else {
-        _records[k] = DayRecord(shiftId: shiftId, note: note);
+        _records[k] = DayRecord(shiftId: shiftId, note: note, isDone: isDone);
       }
     });
     await _storage.saveRecords(_records);
@@ -204,7 +205,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   void _goToday() {
     final now = DateTime.now();
-    setState(() => _current = DateTime(now.year, now.month));
+    setState(() {
+      _current = DateTime(now.year, now.month);
+      _selectedDate = now;
+    });
   }
 
   Future<void> _export() async {
@@ -274,7 +278,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       final rec = _records[_key(date)];
                       final shift = _shiftById(rec?.shiftId);
                       final isToday = date.year == today.year && date.month == today.month && date.day == today.day;
-                      return _dayCell(date, day, shift, rec?.note ?? '', isToday);
+                      final isSelected = _selectedDate != null && date.year == _selectedDate!.year && date.month == _selectedDate!.month && date.day == _selectedDate!.day;
+                      
+                      return _dayCell(date, day, shift, rec, isToday, isSelected);
                     },
                   ),
                 ),
@@ -292,7 +298,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
           IconButton(onPressed: () => _changeMonth(-1), icon: const Icon(Icons.chevron_left)),
           Expanded(
             child: InkWell(
-              onTap: () => _showYearMonthPicker(context), // 点击年月触发选择器
+              onTap: () => _showYearMonthPicker(context),
               child: Center(
                 child: Text('$year年$month月', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
               ),
@@ -319,10 +325,27 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
-  Widget _dayCell(DateTime date, int day, Shift? shift, String note, bool isToday) {
+  Widget _dayCell(DateTime date, int day, Shift? shift, DayRecord? rec, bool isToday, bool isSelected) {
     final theme = Theme.of(context);
     final isWeekend = date.weekday == DateTime.saturday || date.weekday == DateTime.sunday;
     
+    String displayText = '';
+    if (rec != null) {
+      if (rec.note.isNotEmpty) displayText = rec.note;
+      else if (shift != null) displayText = shift.name;
+    }
+    
+    bool isDone = rec?.isDone ?? false;
+    Color textColor = isWeekend ? Colors.red : (theme.brightness == Brightness.dark ? Colors.white : Colors.black);
+    
+    if (isDone) {
+      textColor = Colors.grey;
+    } else if (theme.brightness == Brightness.dark) {
+      textColor = Colors.white;
+    } else {
+      textColor = Colors.black;
+    }
+
     return InkWell(
       borderRadius: BorderRadius.circular(10),
       onTap: () => _openPicker(date),
@@ -330,9 +353,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
         decoration: BoxDecoration(
           color: theme.cardColor,
           borderRadius: BorderRadius.circular(10),
-          border: isToday ? Border.all(color: theme.colorScheme.primary, width: 1.5) : null,
+          border: isSelected 
+              ? Border.all(color: Colors.orange, width: 2)
+              : (isToday ? Border.all(color: theme.colorScheme.primary, width: 1.5) : null),
         ),
-        padding: const EdgeInsets.all(4),
+        padding: const EdgeInsets.all(2),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -341,21 +366,30 @@ class _CalendarScreenState extends State<CalendarScreen> {
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
-                color: isWeekend ? Colors.red : null, // 周末标红
+                color: isWeekend ? Colors.red : (theme.brightness == Brightness.dark ? Colors.white : Colors.black),
               ),
             ),
             const Spacer(),
-            if (shift != null)
+            if (displayText.isNotEmpty)
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(vertical: 2),
-                decoration: BoxDecoration(color: shift.color, borderRadius: BorderRadius.circular(5)),
-                child: Text(shift.short, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
-              ),
-            if (note.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(note, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 9, color: Colors.orange)),
+                decoration: BoxDecoration(
+                  color: isDone ? Colors.grey.withOpacity(0.3) : (shift?.color ?? Colors.blueGrey),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  displayText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: isDone ? Colors.grey : Colors.white,
+                    decoration: isDone ? TextDecoration.lineThrough : null,
+                  ),
+                ),
               ),
           ],
         ),
