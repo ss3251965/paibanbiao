@@ -10,110 +10,301 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # =========================================================
+      # 1. 获取代码
+      # =========================================================
       - name: Checkout
         uses: actions/checkout@v4
 
+      # =========================================================
+      # 2. Java 17
+      # =========================================================
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
           distribution: 'zulu'
           java-version: '17'
 
+      # =========================================================
+      # 3. 固定 Flutter 3.24.0
+      # =========================================================
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.24.0'
           channel: 'stable'
 
-      - name: Create Android platform
-        run: flutter create --platforms=android --project-name banbiao_xiaoli --org com.example .
-
-      - name: Fix Android Gradle and Kotlin Versions
+      # =========================================================
+      # 4. 显示版本，方便排错
+      # =========================================================
+      - name: Check Flutter version
         run: |
-          sed -i 's|com.android.application.*version.*|com.android.application version "7.4.2" apply false|' android/settings.gradle
-          sed -i 's|id "org.jetbrains.kotlin.android" version ".*"|id "org.jetbrains.kotlin.android" version "1.9.22"|' android/settings.gradle
+          flutter --version
+          java -version
 
-          sed -i 's|ext.kotlin_version = .*|ext.kotlin_version = "1.9.22"|' android/build.gradle
-          sed -i 's|com.android.tools.build:gradle:[^'\'']*|com.android.tools.build:gradle:7.4.2|' android/build.gradle
-
-      - name: Fix Gradle Wrapper
+      # =========================================================
+      # 5. 删除之前被修改过的 Android 工程
+      #
+      #    这是非常关键的一步。
+      #    你之前的 android/settings.gradle 已经被改坏，
+      #    所以这里直接删除整个 android 文件夹。
+      #
+      #    后面使用 Flutter 3.24.0 重新生成干净模板。
+      # =========================================================
+      - name: Reset Android project
         run: |
-          sed -i 's|gradle-[0-9.]*-all.zip|gradle-7.5-all.zip|' android/gradle/wrapper/gradle-wrapper.properties
+          rm -rf android
 
-      - name: Fix Desugaring for Notifications
+      # =========================================================
+      # 6. 使用 Flutter 3.24.0 原生模板重新生成 Android 工程
+      # =========================================================
+      - name: Create clean Android platform
         run: |
-          cat << 'EOF' > fix_desugar.py
-          path = "android/app/build.gradle"
+          flutter create \
+            --platforms=android \
+            --project-name banbiao_xiaoli \
+            --org com.example \
+            .
 
-          with open(path, "r") as f:
-              content = f.read()
+      # =========================================================
+      # 7. 配置 flutter_local_notifications 17.2.2
+      #
+      #    17.2.2 官方配置使用：
+      #    desugar_jdk_libs:1.2.2
+      #
+      #    不再使用之前的 2.1.4。
+      # =========================================================
+      - name: Configure Android desugaring
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
 
+          path = Path("android/app/build.gradle")
+          content = path.read_text()
+
+          # -----------------------------------------------------
           # 开启 core library desugaring
+          # -----------------------------------------------------
           if "coreLibraryDesugaringEnabled true" not in content:
+              marker = "compileOptions {"
+
+              if marker not in content:
+                  raise SystemExit(
+                      "ERROR: android/app/build.gradle 中找不到 compileOptions {}"
+                  )
+
               content = content.replace(
-                  "compileOptions {",
-                  "compileOptions {\n"
-                  "        coreLibraryDesugaringEnabled true\n"
-                  "        sourceCompatibility JavaVersion.VERSION_1_8\n"
-                  "        targetCompatibility JavaVersion.VERSION_1_8"
+                  marker,
+                  marker + "\n        coreLibraryDesugaringEnabled true",
+                  1
               )
 
-          # 使用与当前 flutter_local_notifications 兼容的 desugar_jdk_libs
-          content = content.replace(
-              "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'",
-              "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:1.2.2'"
+          # -----------------------------------------------------
+          # 添加 desugar_jdk_libs 1.2.2
+          #
+          # 直接放在文件末尾的顶层 dependencies {} 中，
+          # 不修改 settings.gradle。
+          # -----------------------------------------------------
+          dependency = (
+              "dependencies {\n"
+              "    coreLibraryDesugaring "
+              "'com.android.tools:desugar_jdk_libs:1.2.2'\n"
+              "}\n"
           )
 
-          if "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:1.2.2'" not in content:
-              idx = content.find("dependencies {")
+          if "desugar_jdk_libs:1.2.2" not in content:
+              if not content.endswith("\n"):
+                  content += "\n"
 
-              if idx != -1:
-                  content = (
-                      content[:idx]
-                      + "dependencies {\n"
-                      + "    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:1.2.2'\n"
-                      + content[idx + len("dependencies {"):]
+              content += "\n" + dependency
+
+          path.write_text(content)
+
+          print("===== android/app/build.gradle =====")
+          print(content)
+          PY
+
+      # =========================================================
+      # 8. 配置 Android 通知权限和定时通知 Receiver
+      #
+      #    flutter_local_notifications 17.2.2 官方要求：
+      #
+      #    RECEIVE_BOOT_COMPLETED
+      #    SCHEDULE_EXACT_ALARM（如果使用精确闹钟）
+      #
+      #    ScheduledNotificationReceiver
+      #    ScheduledNotificationBootReceiver
+      #
+      #    官方 17.2.2 配置的 exported 是 false。
+      # =========================================================
+      - name: Configure notification manifest
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path(
+              "android/app/src/main/AndroidManifest.xml"
+          )
+
+          content = path.read_text()
+
+          # -----------------------------------------------------
+          # 添加权限
+          # -----------------------------------------------------
+          permissions = [
+              '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
+              '<uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />',
+              '<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />',
+              '<uses-permission android:name="android.permission.VIBRATE" />',
+          ]
+
+          for permission in permissions:
+              if permission not in content:
+                  content = content.replace(
+                      "<application",
+                      permission + "\n    <application",
+                      1
                   )
-              else:
-                  content += (
-                      "\n"
-                      "dependencies {\n"
-                      "    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:1.2.2'\n"
-                      "}\n"
-                  )
 
-          with open(path, "w") as f:
-              f.write(content)
-          EOF
+          # -----------------------------------------------------
+          # 设置 App 名称
+          #
+          # 只修改 application 标签中的 android:label。
+          # -----------------------------------------------------
+          match = re.search(
+              r'<application\b[^>]*>',
+              content,
+              flags=re.DOTALL
+          )
 
-          python3 fix_desugar.py
+          if not match:
+              raise SystemExit(
+                  "ERROR: AndroidManifest.xml 中找不到 <application>"
+              )
 
-      - name: Add Notification Permissions
+          application_tag = match.group(0)
+
+          if "android:label=" in application_tag:
+              application_tag = re.sub(
+                  r'android:label="[^"]*"',
+                  'android:label="我的记录"',
+                  application_tag,
+                  count=1
+              )
+          else:
+              application_tag = application_tag[:-1] + \
+                  ' android:label="我的记录">'
+
+          content = (
+              content[:match.start()]
+              + application_tag
+              + content[match.end():]
+          )
+
+          # -----------------------------------------------------
+          # ScheduledNotificationReceiver
+          # -----------------------------------------------------
+          receiver1 = (
+              '    <receiver '
+              'android:exported="false" '
+              'android:name="com.dexterous.flutterlocalnotifications.'
+              'ScheduledNotificationReceiver" />'
+          )
+
+          # -----------------------------------------------------
+          # ScheduledNotificationBootReceiver
+          # -----------------------------------------------------
+          receiver2 = '''    <receiver
+        android:exported="false"
+        android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+        <intent-filter>
+            <action android:name="android.intent.action.BOOT_COMPLETED" />
+            <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+        </intent-filter>
+    </receiver>'''
+
+          # -----------------------------------------------------
+          # 防止重复添加 Receiver
+          # -----------------------------------------------------
+          if "ScheduledNotificationReceiver" not in content:
+              content = content.replace(
+                  "</application>",
+                  receiver1 + "\n" +
+                  receiver2 + "\n" +
+                  "</application>",
+                  1
+              )
+
+          path.write_text(content)
+
+          print("===== AndroidManifest.xml =====")
+          print(content)
+          PY
+
+      # =========================================================
+      # 9. 检查图标文件
+      # =========================================================
+      - name: Check app icon
         run: |
-          sed -i 's|<application|<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />\n    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />\n    <uses-permission android:name="android.permission.VIBRATE" />\n    <application|' android/app/src/main/AndroidManifest.xml
+          if [ ! -f "icon.jpg" ]; then
+            echo "ERROR: 项目根目录找不到 icon.jpg"
+            echo "请确认 icon.jpg 已经上传到 GitHub 仓库根目录。"
+            exit 1
+          fi
 
-      - name: Add Notification Receivers
-        run: |
-          sed -i 's|</application>|    <receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" android:exported="false" />\n        <receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver" android:exported="false">\n            <intent-filter>\n                <action android:name="android.intent.action.BOOT_COMPLETED" />\n                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />\n                <action android:name="android.intent.action.QUICKBOOT_POWERON" />\n            </intent-filter>\n        </receiver>\n    </application>|' android/app/src/main/AndroidManifest.xml
+          echo "icon.jpg found."
 
-      - name: Set App Name
-        run: |
-          sed -i 's/android:label=".*"/android:label="我的记录"/' android/app/src/main/AndroidManifest.xml
-
+      # =========================================================
+      # 10. 获取 Flutter 依赖
+      # =========================================================
       - name: Install dependencies
-        run: flutter pub get
-
-      - name: Generate Launcher Icons
-        run: dart run flutter_launcher_icons
-
-      - name: Clean Flutter Build
         run: |
-          flutter clean
           flutter pub get
 
-      - name: Build release APK
-        run: flutter build apk --release --no-shrink
+      # =========================================================
+      # 11. 生成 Launcher 图标
+      # =========================================================
+      - name: Generate Launcher Icons
+        run: |
+          dart run flutter_launcher_icons
 
+      # =========================================================
+      # 12. 最终检查关键配置
+      # =========================================================
+      - name: Verify Android configuration
+        run: |
+          echo "===== settings.gradle ====="
+          cat android/settings.gradle
+
+          echo ""
+          echo "===== app/build.gradle: desugaring ====="
+          grep -n -A3 -B3 "coreLibraryDesugaring" android/app/build.gradle || true
+
+          echo ""
+          echo "===== AndroidManifest notification config ====="
+          grep -n -A15 -B3 "ScheduledNotification" \
+            android/app/src/main/AndroidManifest.xml || true
+
+      # =========================================================
+      # 13. 构建 Release APK
+      #
+      # --no-shrink 是 Flutter 合法的 build 参数。
+      # 这里使用它，是为了避免不必要的 R8/ProGuard 变量。
+      #
+      # 之前真正导致 FakeDependency.jar 错误的核心问题，
+      # 是错误的 desugaring / Android Gradle 配置，
+      # 不是 --no-shrink 参数本身。
+      # =========================================================
+      - name: Build release APK
+        run: |
+          flutter build apk --release --no-shrink
+
+      # =========================================================
+      # 14. 上传 APK
+      # =========================================================
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
