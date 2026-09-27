@@ -14,9 +14,10 @@ class CycleService {
     var index = 0;
 
     while (!cursor.isAfter(endDay)) {
-      final shiftId = cycle[index % cycle.length];
-      if (shiftId != null) {
-        result[_key(cursor)] = DayRecord(shiftId: shiftId);
+      final shiftText = cycle[index % cycle.length];
+      if (shiftText != null && shiftText.isNotEmpty) {
+        // 修复：使用新的 DayRecord 结构，直接存入 note
+        result[_key(cursor)] = DayRecord(note: shiftText);
       }
       cursor = cursor.add(const Duration(days: 1));
       index++;
