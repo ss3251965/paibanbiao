@@ -36,8 +36,6 @@ jobs:
       - name: Fix Desugaring for Notifications
         run: |
           cat << 'EOF' > fix_desugar.py
-          import re
-
           path = "android/app/build.gradle"
 
           with open(path, "r") as f:
@@ -59,9 +57,9 @@ jobs:
                   end_idx = None
 
                   for i in range(idx, len(content)):
-                      if content[i] == '{':
+                      if content[i] == "{":
                           depth += 1
-                      elif content[i] == '}':
+                      elif content[i] == "}":
                           depth -= 1
 
                           if depth == 0:
@@ -72,8 +70,8 @@ jobs:
                       content = (
                           content[:end_idx]
                           + "\n    dependencies {\n"
-                            "        coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'\n"
-                            "    }\n"
+                          + "        coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'\n"
+                          + "    }\n"
                           + content[end_idx:]
                       )
 
@@ -102,7 +100,7 @@ jobs:
         run: dart run flutter_launcher_icons
 
       - name: Build release APK
-        run: flutter build apk --release
+        run: flutter build apk --release --no-shrink
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
