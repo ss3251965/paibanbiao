@@ -1,19 +1,19 @@
 class DayRecord {
-  String shiftId;
-  String note;
-  bool isDone; // 新增：记录是否完成
+  String note;    // 主记录，如“锻炼”
+  String detail;  // 详细说明，如“今天练得到不到位”，不显示在主页
+  bool isDone;    // 是否已完成
 
-  DayRecord({this.shiftId = '', this.note = '', this.isDone = false});
+  DayRecord({this.note = '', this.detail = '', this.isDone = false});
 
   Map<String, dynamic> toJson() => {
-        'shiftId': shiftId,
         'note': note,
+        'detail': detail,
         'isDone': isDone,
       };
 
   factory DayRecord.fromJson(Map<String, dynamic> json) => DayRecord(
-        shiftId: json['shiftId'] as String? ?? '',
         note: json['note'] as String? ?? '',
+        detail: json['detail'] as String? ?? '',
         isDone: json['isDone'] as bool? ?? false,
       );
 }

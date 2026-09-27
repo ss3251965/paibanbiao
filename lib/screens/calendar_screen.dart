@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:lunar/lunar.dart';
-import '../models/shift.dart';
 import '../models/day_record.dart';
 import '../services/storage_service.dart';
 import '../services/export_service.dart';
-import 'shifts_screen.dart';
 import 'cycle_screen.dart';
 
 class CalendarScreen extends StatefulWidget {
@@ -19,7 +17,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
   DateTime _current = DateTime(DateTime.now().year, DateTime.now().month);
   DateTime? _selectedDate;
   Map<String, DayRecord> _records = {};
-  List<Shift> _shifts = [];
   bool _loading = true;
 
   final Map<String, String> _holidays = {
@@ -37,11 +34,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   Future<void> _load() async {
-    final shifts = await _storage.loadShifts();
     final records = await _storage.loadRecords();
     if (!mounted) return;
     setState(() {
-      _shifts = shifts;
       _records = records;
       _loading = false;
     });
@@ -94,7 +89,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
-  // 点击日期，弹出设置主要记录和完成状态的窗口
+  // 1. 点击日期空白处，设置主记录
   Future<void> _openPicker(DateTime date) async {
     final k = _key(date);
     final existing = _records[k] ?? DayRecord();
@@ -126,7 +121,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         Text('${date.year}年${date.month}月${date.day}日',
                             style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                         GestureDetector(
-                          onTap: () { Navigator.pop(ctx); _setRecord(date, '', false); },
+                          onTap: () { Navigator.pop(ctx); _setRecord(date, '', '', false); },
                           child: const Padding(
                             padding: EdgeInsets.all(4),
                             child: Icon(Icons.delete_outline, color: Colors.red, size: 20),
@@ -171,7 +166,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           ],
                         ),
                         FilledButton(
-                          onPressed: () { Navigator.pop(ctx); _setRecord(date, noteCtl.text, isDone); },
+                          onPressed: () { Navigator.pop(ctx); _setRecord(date, noteCtl.text, '', isDone); },
                           style: FilledButton.styleFrom(
                             minimumSize: const Size(60, 32),
                             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -190,41 +185,77 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
-  // 点击日历上的记录胶囊，弹出气泡写详细说明
+  // 2. 点击记录胶囊，弹出的极简小气泡
   Future<void> _showRecordDetail(DateTime date, DayRecord rec) async {
-    final detailCtl = TextEditingController(text: rec.note);
+    final detailCtl = TextEditingController(text: rec.detail);
+    bool isDone = rec.isDone;
+
     await showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('${date.month}月${date.day}日 详细说明', style: const TextStyle(fontSize: 15)),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-        content: TextField(
-          controller: detailCtl,
-          decoration: const InputDecoration(hintText: '写详细说明...', isDense: true),
-          maxLines: 3,
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-          FilledButton(
-            onPressed: () {
-              setState(() {
-                rec.note = detailCtl.text;
-              });
-              _storage.saveRecords(_records);
-              Navigator.pop(ctx);
-            },
-            child: const Text('保存'),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSt) => AlertDialog(
+          // 极简：去掉多余的内边距
+          contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          title: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // 标题就是记录的名称
+              Text(rec.note, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              // 在这里可以修改状态
+              Row(
+                children: [
+                  SizedBox(
+                    width: 24, height: 24,
+                    child: Checkbox(
+                      value: isDone,
+                      onChanged: (v) => setSt(() => isDone = v!),
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Text('已完成', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                ],
+              ),
+            ],
           ),
-        ],
+          content: TextField(
+            controller: detailCtl,
+            decoration: const InputDecoration(
+              hintText: '写详细说明（不显示在主页）...',
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
+            maxLines: 3,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () { Navigator.pop(ctx); },
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () {
+                setState(() {
+                  rec.detail = detailCtl.text;
+                  rec.isDone = isDone;
+                });
+                _storage.saveRecords(_records);
+                Navigator.pop(ctx);
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Future<void> _setRecord(DateTime date, String note, bool isDone) async {
+  Future<void> _setRecord(DateTime date, String note, String detail, bool isDone) async {
     final k = _key(date);
     setState(() {
-      if (note.isEmpty) _records.remove(k);
-      else _records[k] = DayRecord(shiftId: '', note: note, isDone: isDone);
+      if (note.isEmpty && detail.isEmpty) _records.remove(k);
+      else _records[k] = DayRecord(note: note, detail: detail, isDone: isDone);
     });
     await _storage.saveRecords(_records);
   }
@@ -236,7 +267,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     setState(() { _current = DateTime(now.year, now.month); _selectedDate = now; });
   }
 
-  Future<void> _export() async => await ExportService.exportCsv(records: _records, shifts: _shifts);
+  Future<void> _export() async => await ExportService.exportCsv(records: _records, shifts: []);
 
   @override
   Widget build(BuildContext context) {
@@ -347,17 +378,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Widget _dayCell(DateTime date, int day, DayRecord? rec, String lunarText, bool isToday, bool isSelected) {
     final theme = Theme.of(context);
     final isWeekend = date.weekday == DateTime.saturday || date.weekday == DateTime.sunday;
-    bool isDone = rec?.isDone ?? false;
     
-    // 显示逻辑：优先显示自定义备注，没有备注则显示班次名称
     String displayText = (rec != null && rec.note.isNotEmpty) ? rec.note : '';
-    Shift? shift;
-    if (rec != null && rec.shiftId.isNotEmpty) {
-      try { shift = _shifts.firstWhere((s) => s.id == rec.shiftId); } catch (_) {}
-    }
-    if (displayText.isEmpty && shift != null) {
-      displayText = shift.name;
-    }
+    bool isDone = rec?.isDone ?? false;
 
     Color lunarColor = Colors.grey.shade500;
     if (isWeekend || lunarText.contains('节') || lunarText.contains('元旦') || lunarText.contains('国庆')) {
@@ -376,22 +399,25 @@ class _CalendarScreenState extends State<CalendarScreen> {
         ),
         padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 1),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.start, // 顶部对齐
+          mainAxisAlignment: MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
+            // 日期
             Text('$day', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: isWeekend ? Colors.red : null)),
             const SizedBox(height: 1),
+            // 农历
             Text(
               lunarText,
               maxLines: 1, overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 9, color: lunarColor),
             ),
-            // 只有有记录时才显示，并添加点击事件
-            if (displayText.isNotEmpty) ...[
-              const SizedBox(height: 4), // 留一点点间距
+            // ⭐ 空一行（增加间距），用来把记录和农历隔开
+            const SizedBox(height: 8), 
+            // 记录（只有有记录时才显示）
+            if (displayText.isNotEmpty)
               GestureDetector(
                 onTap: () {
-                  if (rec != null) _showRecordDetail(date, rec); // 点击胶囊，弹出详情气泡
+                  if (rec != null) _showRecordDetail(date, rec);
                 },
                 child: Container(
                   width: double.infinity,
@@ -415,7 +441,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   ),
                 ),
               ),
-            ],
           ],
         ),
       ),
