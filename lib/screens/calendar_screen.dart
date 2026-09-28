@@ -230,13 +230,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       child: Checkbox(
                         value: rec.isDone,
                         onChanged: (v) {
-                          // 1. 状态直接生效并保存
-                          setState(() {
-                            rec.detail = detailCtl.text; // 顺便把刚写的说明也保存了
+                          // ⭐ 核心修复：使用弹窗内部的 setSt，UI 立刻刷新
+                          setSt(() {
+                            rec.detail = detailCtl.text;
                             rec.isDone = v!;
                           });
                           _storage.saveRecords(_records);
-                          // 2. 不要 Navigator.pop(ctx)，让弹窗保持打开
                         },
                         visualDensity: VisualDensity.compact,
                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -267,7 +266,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
               ),
               FilledButton(
                 onPressed: () {
-                  // 这里的保存按钮只针对详细说明，点完可以直接关，也可以保留
                   setState(() {
                     rec.detail = detailCtl.text;
                   });
