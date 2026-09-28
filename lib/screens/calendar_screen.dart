@@ -207,11 +207,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   Future<void> _showRecordDetail(DateTime date, DayRecord rec) async {
     final detailCtl = TextEditingController(text: rec.detail);
-    bool isDone = rec.isDone;
 
     await showGeneralDialog(
       context: context,
-      barrierDismissible: true,
+      barrierDismissible: true, // 点击外部自动关闭
       barrierLabel: 'Dismiss',
       barrierColor: Colors.black54,
       transitionDuration: const Duration(milliseconds: 250),
@@ -229,8 +228,16 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     SizedBox(
                       width: 24, height: 24,
                       child: Checkbox(
-                        value: isDone,
-                        onChanged: (v) => setSt(() => isDone = v!),
+                        value: rec.isDone,
+                        onChanged: (v) {
+                          // 1. 状态直接生效并保存
+                          setState(() {
+                            rec.detail = detailCtl.text; // 顺便把刚写的说明也保存了
+                            rec.isDone = v!;
+                          });
+                          _storage.saveRecords(_records);
+                          // 2. 不要 Navigator.pop(ctx)，让弹窗保持打开
+                        },
                         visualDensity: VisualDensity.compact,
                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
@@ -260,9 +267,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
               ),
               FilledButton(
                 onPressed: () {
+                  // 这里的保存按钮只针对详细说明，点完可以直接关，也可以保留
                   setState(() {
                     rec.detail = detailCtl.text;
-                    rec.isDone = isDone;
                   });
                   _storage.saveRecords(_records);
                   Navigator.pop(ctx);
@@ -270,7 +277,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 style: FilledButton.styleFrom(
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
-                child: const Text('保存'),
+                child: const Text('保存说明'),
               ),
             ],
           ),
@@ -329,7 +336,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('我的记录'), centerTitle: true,
+        title: const Text('记录'), centerTitle: true,
         actions: [
           IconButton(tooltip: '周期排班', icon: const Icon(Icons.autorenew), onPressed: () async {
             await Navigator.push(context, MaterialPageRoute(builder: (_) => CycleScreen(onApply: _load)));
@@ -383,7 +390,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
           padding: const EdgeInsets.fromLTRB(2, 2, 2, 4),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 7,
-            // 注意：我调整了 childAspectRatio，让格子稍微变长一点，以便容纳3行记录文字
             childAspectRatio: itemWidth / (itemHeight * 1.1), 
             crossAxisSpacing: 2,
             mainAxisSpacing: 2,
@@ -448,7 +454,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
     String displayText = (rec != null && rec.note.isNotEmpty) ? rec.note : '';
     bool isDone = rec?.isDone ?? false;
 
-    // ⭐ 核心修复：强制每 4 个字换行
     String formattedText = displayText;
     if (displayText.length > 4) {
       formattedText = displayText.replaceAllMapped(RegExp(r'.{4}'), (match) => '${match.group(0)}\n');
@@ -464,13 +469,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
     return InkWell(
       borderRadius: BorderRadius.circular(12),
-      // 单击只高亮选中
       onTap: () {
         setState(() {
           _selectedDate = date;
         });
       },
-      // 长按才弹出备注框
       onLongPress: () {
         _openPicker(date);
       },
@@ -506,15 +509,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     color: isDone ? Colors.grey.withOpacity(0.2) : theme.colorScheme.primary.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  // 使用换行后的文字，彻底移除 FittedBox，让文字自然排列
                   child: Text(
                     formattedText,
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: 10.5, // 稍小的字号，保证4个字能完整占据一行
-                      height: 1.5,    // 行高 1.5，让行与行之间自然空出间距
+                      fontSize: 10.5,
+                      height: 1.5,
                       fontWeight: FontWeight.w600,
                       color: isDone ? Colors.grey : theme.colorScheme.primary,
                       decoration: isDone ? TextDecoration.lineThrough : null,

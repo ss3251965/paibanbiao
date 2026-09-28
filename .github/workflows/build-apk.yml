@@ -33,6 +33,10 @@ jobs:
           sed -i 's|ext.kotlin_version = .*|ext.kotlin_version = "1.9.22"|' android/build.gradle
           sed -i 's|id "org.jetbrains.kotlin.android" version ".*"|id "org.jetbrains.kotlin.android" version "1.9.22"|' android/settings.gradle
 
+      - name: Set App Name
+        run: |
+          sed -i 's/android:label=".*"/android:label="记录"/' android/app/src/main/AndroidManifest.xml
+
       - name: Install dependencies
         run: flutter pub get
 
