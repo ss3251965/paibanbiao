@@ -383,7 +383,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
           padding: const EdgeInsets.fromLTRB(2, 2, 2, 4),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 7,
-            childAspectRatio: itemWidth / itemHeight,
+            // 注意：我调整了 childAspectRatio，让格子稍微变长一点，以便容纳3行记录文字
+            childAspectRatio: itemWidth / (itemHeight * 1.1), 
             crossAxisSpacing: 2,
             mainAxisSpacing: 2,
           ),
@@ -447,22 +448,30 @@ class _CalendarScreenState extends State<CalendarScreen> {
     String displayText = (rec != null && rec.note.isNotEmpty) ? rec.note : '';
     bool isDone = rec?.isDone ?? false;
 
+    // ⭐ 核心修复：强制每 4 个字换行
+    String formattedText = displayText;
+    if (displayText.length > 4) {
+      formattedText = displayText.replaceAllMapped(RegExp(r'.{4}'), (match) => '${match.group(0)}\n');
+      if (formattedText.endsWith('\n')) {
+        formattedText = formattedText.substring(0, formattedText.length - 1);
+      }
+    }
+
     Color lunarColor = Colors.grey.shade500;
     if (isWeekend || lunarText.contains('节') || lunarText.contains('元旦') || lunarText.contains('国庆')) {
       lunarColor = Colors.red;
     }
 
-    // 核心改动：单击仅选中，长按弹出记录框
     return InkWell(
       borderRadius: BorderRadius.circular(12),
+      // 单击只高亮选中
       onTap: () {
-        // 单击只用来高亮选中，不弹窗
         setState(() {
           _selectedDate = date;
         });
       },
+      // 长按才弹出备注框
       onLongPress: () {
-        // 长按才弹出备注框
         _openPicker(date);
       },
       child: Container(
@@ -487,33 +496,28 @@ class _CalendarScreenState extends State<CalendarScreen> {
             const SizedBox(height: 12), 
             if (displayText.isNotEmpty)
               GestureDetector(
-                // 点击胶囊仍然可以弹出详细说明（不算误触，因为用户明确点了内容）
                 onTap: () {
                   if (rec != null) _showRecordDetail(date, rec);
                 },
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 0),
+                  padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 1),
                   decoration: BoxDecoration(
                     color: isDone ? Colors.grey.withOpacity(0.2) : theme.colorScheme.primary.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  // 强制缩放，确保一排能放4个字，且行数最多3行
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      displayText,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 11.5,
-                        height: 1.4, 
-                        letterSpacing: -1.0, 
-                        fontWeight: FontWeight.w600,
-                        color: isDone ? Colors.grey : theme.colorScheme.primary,
-                        decoration: isDone ? TextDecoration.lineThrough : null,
-                      ),
+                  // 使用换行后的文字，彻底移除 FittedBox，让文字自然排列
+                  child: Text(
+                    formattedText,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 10.5, // 稍小的字号，保证4个字能完整占据一行
+                      height: 1.5,    // 行高 1.5，让行与行之间自然空出间距
+                      fontWeight: FontWeight.w600,
+                      color: isDone ? Colors.grey : theme.colorScheme.primary,
+                      decoration: isDone ? TextDecoration.lineThrough : null,
                     ),
                   ),
                 ),
