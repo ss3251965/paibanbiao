@@ -25,134 +25,13 @@ jobs:
           flutter-version: '3.24.0'
           channel: 'stable'
 
-      # 1. 删除旧工程，重新生成干净工程
-      - name: Remove old Android project
-        run: rm -rf android
+      - name: Create Android platform
+        run: flutter create --platforms=android --project-name banbiao_xiaoli --org com.example .
 
-      - name: Create Android project
-        run: |
-          flutter create \
-            --platforms=android \
-            --project-name banbiao_xiaoli \
-            --org com.example \
-            .
-
-      # 2. 修复 Kotlin 版本
       - name: Fix Kotlin Gradle Plugin Version
         run: |
           sed -i 's|ext.kotlin_version = .*|ext.kotlin_version = "1.9.22"|' android/build.gradle
           sed -i 's|id "org.jetbrains.kotlin.android" version ".*"|id "org.jetbrains.kotlin.android" version "1.9.22"|' android/settings.gradle
-
-      # ⭐ 核心修复 1：将 Gradle 内存上限强制拉高到 4GB，解决满屏的 Error while dexing
-      - name: Increase Gradle memory
-        run: |
-          echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" >> android/gradle.properties
-
-      # ⭐ 核心修复 2：精准配置 Java 17、强制 SDK、脱糖、拦截 Lint
-      - name: Configure Gradle
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path("android/app/build.gradle")
-          content = path.read_text()
-
-          # 强制显式设置 Java 17 兼容性（满足 share_plus 插件要求）
-          if "sourceCompatibility JavaVersion.VERSION_17" not in content:
-              content = content.replace(
-                  "compileOptions {",
-                  "compileOptions {\n        sourceCompatibility JavaVersion.VERSION_17\n        targetCompatibility JavaVersion.VERSION_17"
-              )
-
-          # 强制指定 SDK 版本（避免版本错乱导致 D8 崩溃）
-          if "compileSdkVersion" not in content:
-              content = content.replace(
-                  "android {",
-                  "android {\n    compileSdkVersion 34\n    defaultConfig {\n        minSdkVersion 21\n        targetSdkVersion 34\n    }"
-              )
-
-          # 开启脱糖
-          if "coreLibraryDesugaringEnabled true" not in content:
-              content = content.replace(
-                  "compileOptions {",
-                  "compileOptions {\n        coreLibraryDesugaringEnabled true"
-              )
-
-          # 彻底关闭代码缩减（避免 R8 崩溃）
-          if "minifyEnabled false" not in content:
-              content = content.replace(
-                  "buildTypes {",
-                  "buildTypes {\n        release {\n            minifyEnabled false\n            shrinkResources false\n        }"
-              )
-
-          # 注入脱糖依赖（2.1.4 修复了 Java 17 下的空指针崩溃）
-          if "desugar_jdk_libs:2.1.4" not in content:
-              content += """
-
-          dependencies {
-              coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
-          }
-          """
-
-          # ⭐ 核心修复 3：使用任务拦截器彻底禁用 Lint 任务（比 lint 块更稳定，绝对不会报语法错误）
-          if "whenTaskAdded" not in content:
-              content += """
-
-          tasks.whenTaskAdded { task ->
-              if (task.name.contains("lintVital")) {
-                  task.enabled = false
-              }
-          }
-          """
-          path.write_text(content)
-          print("Gradle configured successfully.")
-          PY
-
-      # 3. 配置 Manifest 权限和接收器
-      - name: Configure notification manifest
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          path = Path("android/app/src/main/AndroidManifest.xml")
-          content = path.read_text()
-
-          permissions = [
-              '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
-              '<uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />',
-              '<uses-permission android:name="android.permission.USE_EXACT_ALARM" />',
-              '<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />',
-              '<uses-permission android:name="android.permission.VIBRATE" />'
-          ]
-          for permission in permissions:
-              if permission not in content:
-                  content = content.replace("<application", permission + "\n    <application", 1)
-
-          application_pattern = r'<application\b[^>]*>'
-          match = re.search(application_pattern, content, flags=re.DOTALL)
-          if match:
-              application_tag = match.group(0)
-              if "android:label=" in application_tag:
-                  application_tag = re.sub(r'android:label="[^"]*"', 'android:label="我的记录"', application_tag, count=1)
-              else:
-                  application_tag = application_tag[:-1] + ' android:label="我的记录">'
-              content = content[:match.start()] + application_tag + content[match.end():]
-
-          receiver_text = """
-              <receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" android:exported="false" />
-              <receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver" android:exported="true">
-                  <intent-filter>
-                      <action android:name="android.intent.action.BOOT_COMPLETED" />
-                      <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-                      <action android:name="android.intent.action.QUICKBOOT_POWERON" />
-                  </intent-filter>
-              </receiver>
-          """
-          if "ScheduledNotificationReceiver" not in content:
-              content = content.replace("</application>", receiver_text + "\n    </application>", 1)
-
-          path.write_text(content)
-          print("Manifest configured successfully.")
-          PY
 
       - name: Install dependencies
         run: flutter pub get
@@ -160,9 +39,8 @@ jobs:
       - name: Generate Launcher Icons
         run: dart run flutter_launcher_icons
 
-      # 编译 Release APK
       - name: Build release APK
-        run: flutter build apk --release --no-shrink
+        run: flutter build apk --release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

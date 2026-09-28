@@ -13,8 +13,6 @@ dependencies:
   path_provider: 2.1.4
   share_plus: 10.1.2
   lunar: ^1.7.4
-  flutter_local_notifications: 17.2.2
-  timezone: ^0.9.4
 
 dev_dependencies:
   flutter_test:
@@ -28,6 +26,4 @@ flutter:
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: false
-  # ⚠️ 注意：这里一定要和你放在项目根目录的图片名字一模一样。
-  # 如果你之前重命名成了 icon.jpg 就写 icon.jpg，如果是 icon.png 就写 icon.png
-  image_path: "icon.jpg" 
+  image_path: "icon.jpg" # 如果是png请改成 icon.png
