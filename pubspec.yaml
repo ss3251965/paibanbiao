@@ -1,7 +1,7 @@
 name: banbiao_xiaoli
 description: 我的记录
 publish_to: 'none'
-version: 1.0.0+1
+version: 3.1.0+2
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -10,8 +10,6 @@ dependencies:
   flutter:
     sdk: flutter
   shared_preferences: 2.2.2
-  path_provider: 2.1.4
-  share_plus: 10.1.2
   lunar: ^1.7.4
 
 dev_dependencies:
@@ -26,4 +24,4 @@ flutter:
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: false
-  image_path: "icon.jpg" # 如果是png请改成 icon.png
+  image_path: "icon.jpg"
