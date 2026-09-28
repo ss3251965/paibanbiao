@@ -230,11 +230,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       child: Checkbox(
                         value: rec.isDone,
                         onChanged: (v) {
-                          // ⭐ 核心修复：使用弹窗内部的 setSt，UI 立刻刷新
+                          // 1. 刷新弹窗内部的 UI
                           setSt(() {
                             rec.detail = detailCtl.text;
                             rec.isDone = v!;
                           });
+                          // 2. ⭐ 核心修复：强制通知主页面刷新日历格子
+                          setState(() {});
+                          // 3. 保存数据
                           _storage.saveRecords(_records);
                         },
                         visualDensity: VisualDensity.compact,
