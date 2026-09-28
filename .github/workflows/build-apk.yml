@@ -13,11 +13,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ⭐ 核心修复 1：将 Java 从 17 降至 11，彻底避开 R8 内部的 Java 17 崩溃 Bug
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
           distribution: 'zulu'
-          java-version: '17'
+          java-version: '11'
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -25,7 +26,7 @@ jobs:
           flutter-version: '3.24.0'
           channel: 'stable'
 
-      # 删除旧的 Android 工程，生成干净工程
+      # ⭐ 核心修复 2：删掉之前被改坏的 Android 工程，重新生成干净的原生代码
       - name: Remove old Android project
         run: rm -rf android
 
@@ -37,44 +38,53 @@ jobs:
             --org com.example \
             .
 
-      # 修复 Kotlin 版本
+      # 修复 Kotlin 版本，确保匹配 Flutter 3.24
       - name: Fix Kotlin Gradle Plugin Version
         run: |
           sed -i 's|ext.kotlin_version = .*|ext.kotlin_version = "1.9.22"|' android/build.gradle
           sed -i 's|id "org.jetbrains.kotlin.android" version ".*"|id "org.jetbrains.kotlin.android" version "1.9.22"|' android/settings.gradle
 
-      # 配置脱糖
-      - name: Configure desugaring
+      # ⭐ 核心修复 3：精准注入脱糖依赖，并禁用会导致崩溃的 Lint 检查
+      - name: Configure desugaring and disable lint
         run: |
           python3 - <<'PY'
           from pathlib import Path
           path = Path("android/app/build.gradle")
           content = path.read_text()
 
+          # 开启脱糖
           if "coreLibraryDesugaringEnabled true" not in content:
               content = content.replace(
                   "compileOptions {",
                   "compileOptions {\n        coreLibraryDesugaringEnabled true", 1
               )
 
-          if "desugar_jdk_libs:2.1.4" not in content:
+          # 注入 2.0.4 稳定版脱糖依赖
+          if "desugar_jdk_libs:2.0.4" not in content:
               content += """
 
           dependencies {
-              coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
+              coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
           }
           """
+
+          # 彻底禁用 Release 构建的 Lint 检查
+          if "checkReleaseBuilds false" not in content:
+              content = content.replace(
+                  "android {",
+                  "android {\n    lint { checkReleaseBuilds false }", 1
+              )
+
           path.write_text(content)
-          print("Desugaring configuration completed.")
+          print("Configured desugaring and disabled lint.")
           PY
 
-      # 配置 Manifest 权限和名字
+      # 配置 Manifest 权限和接收器
       - name: Configure notification manifest
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
-
           path = Path("android/app/src/main/AndroidManifest.xml")
           content = path.read_text()
 
@@ -85,11 +95,11 @@ jobs:
               '<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />',
               '<uses-permission android:name="android.permission.VIBRATE" />'
           ]
-
           for permission in permissions:
               if permission not in content:
                   content = content.replace("<application", permission + "\n    <application", 1)
 
+          # 修改 App 名字
           application_pattern = r'<application\b[^>]*>'
           match = re.search(application_pattern, content, flags=re.DOTALL)
           if match:
@@ -100,6 +110,7 @@ jobs:
                   application_tag = application_tag[:-1] + ' android:label="我的记录">'
               content = content[:match.start()] + application_tag + content[match.end():]
 
+          # 注册通知接收器（注意：BootReceiver 必须 exported="true" 才能接收系统重启广播）
           receiver_text = """
               <receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" android:exported="false" />
               <receiver android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver" android:exported="true">
@@ -114,7 +125,7 @@ jobs:
               content = content.replace("</application>", receiver_text + "\n    </application>", 1)
 
           path.write_text(content)
-          print("Notification manifest configuration completed.")
+          print("Configured notification manifest.")
           PY
 
       - name: Install dependencies
@@ -123,7 +134,7 @@ jobs:
       - name: Generate Launcher Icons
         run: dart run flutter_launcher_icons
 
-      # ⭐ 核心修复：加上 --no-shrink 彻底避开 R8 崩溃
+      # ⭐ 核心修复 4：加上 Flutter 官方提示的 --no-shrink 参数，双重保险
       - name: Build release APK
         run: flutter build apk --release --no-shrink
 
