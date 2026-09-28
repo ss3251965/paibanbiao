@@ -13,7 +13,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ⭐ 核心修复 1：恢复 Java 17，满足 share_plus 插件的要求
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
@@ -26,7 +25,7 @@ jobs:
           flutter-version: '3.24.0'
           channel: 'stable'
 
-      # 删除旧工程，重新生成干净工程
+      # 1. 删除旧工程，重新生成干净工程
       - name: Remove old Android project
         run: rm -rf android
 
@@ -38,49 +37,42 @@ jobs:
             --org com.example \
             .
 
-      # 修复 Kotlin 版本
+      # 2. 修复 Kotlin 版本
       - name: Fix Kotlin Gradle Plugin Version
         run: |
           sed -i 's|ext.kotlin_version = .*|ext.kotlin_version = "1.9.22"|' android/build.gradle
           sed -i 's|id "org.jetbrains.kotlin.android" version ".*"|id "org.jetbrains.kotlin.android" version "1.9.22"|' android/settings.gradle
 
-      # ⭐ 核心修复 2：精准配置 Java 17、脱糖、彻底禁用 Lint 和代码缩减
-      - name: Configure Gradle for Java 17, desugaring, and disabled Lint
+      # 3. 核心修复：配置 Java 17、脱糖，并拦截禁用会引发崩溃的 Lint 任务
+      - name: Configure Gradle for Java 17, desugaring, and disable lint tasks
         run: |
           python3 - <<'PY'
           from pathlib import Path
           path = Path("android/app/build.gradle")
           content = path.read_text()
 
-          # 1. 强制显式设置 Java 17 兼容性
+          # 强制显式设置 Java 17 兼容性（满足 share_plus 插件要求）
           if "sourceCompatibility JavaVersion.VERSION_17" not in content:
               content = content.replace(
                   "compileOptions {",
                   "compileOptions {\n        sourceCompatibility JavaVersion.VERSION_17\n        targetCompatibility JavaVersion.VERSION_17"
               )
 
-          # 2. 开启脱糖
+          # 开启脱糖
           if "coreLibraryDesugaringEnabled true" not in content:
               content = content.replace(
                   "compileOptions {",
                   "compileOptions {\n        coreLibraryDesugaringEnabled true"
               )
 
-          # 3. 彻底禁用 Lint 检查 (这是之前导致 R8 崩溃的罪魁祸首)
-          if "checkReleaseBuilds false" not in content:
-              content = content.replace(
-                  "android {",
-                  "android {\n    lint { checkReleaseBuilds false abortOnError false }"
-              )
-
-          # 4. 彻底关闭代码缩减 (即使没有 --no-shrink，这里也关闭)
+          # 彻底关闭代码缩减（避免 R8 崩溃）
           if "minifyEnabled false" not in content:
               content = content.replace(
                   "buildTypes {",
                   "buildTypes {\n        release {\n            minifyEnabled false\n            shrinkResources false\n        }"
               )
 
-          # 5. 注入脱糖依赖
+          # 注入脱糖依赖
           if "desugar_jdk_libs:2.0.4" not in content:
               content += """
 
@@ -88,11 +80,22 @@ jobs:
               coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
           }
           """
+
+          # ⭐ 核心修复：使用任务拦截器，彻底禁用 Lint 任务（比 lint 块更稳定，不会报错）
+          if "whenTaskAdded" not in content:
+              content += """
+
+          tasks.whenTaskAdded { task ->
+              if (task.name.contains("lintVital")) {
+                  task.enabled = false
+              }
+          }
+          """
           path.write_text(content)
-          print("Gradle configured for Java 17 with disabled Lint.")
+          print("Gradle configured successfully.")
           PY
 
-      # 配置 Manifest 权限和接收器
+      # 4. 配置 Manifest 权限和接收器
       - name: Configure notification manifest
         run: |
           python3 - <<'PY'
@@ -136,7 +139,7 @@ jobs:
               content = content.replace("</application>", receiver_text + "\n    </application>", 1)
 
           path.write_text(content)
-          print("Manifest configured.")
+          print("Manifest configured successfully.")
           PY
 
       - name: Install dependencies
@@ -145,7 +148,7 @@ jobs:
       - name: Generate Launcher Icons
         run: dart run flutter_launcher_icons
 
-      # 使用 --no-shrink 双重保险
+      # 5. 加上官方提示的 --no-shrink 双重保险
       - name: Build release APK
         run: flutter build apk --release --no-shrink
 
